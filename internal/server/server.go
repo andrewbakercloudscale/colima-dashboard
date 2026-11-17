@@ -83,7 +83,7 @@ func errorf(format string, a ...any) error { return fmt.Errorf(format, a...) }
 
 func (s *Server) allowedHosts() []string {
 	p := strconv.Itoa(s.opt.Port)
-	return []string{"127.0.0.1:" + p, "localhost:" + p}
+	return []string{"127.0.0.1:" + p, "localhost:" + p, LocalName + ":" + p}
 }
 
 func (s *Server) allowedOrigin(origin string) bool {

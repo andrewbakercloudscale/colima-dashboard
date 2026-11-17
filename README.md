@@ -66,13 +66,15 @@ curl -fsSL https://raw.githubusercontent.com/andrewbakercloudscale/colima-dashbo
 It installs Colima and the Docker tools with Homebrew (`colima docker docker-compose docker-buildx
 docker-credential-helper`), points the docker CLI at compose and buildx, downloads the latest
 Colima Dashboard release (checksum verified), starts it now and at every login, and opens
-`http://127.0.0.1:7766`. Then press **Start** on the General page to create your first VM.
+**http://colima.localhost:7766**. For that easy address it adds one line, `127.0.0.1 colima.localhost`,
+to `/etc/hosts`; that is the only step that asks for your Mac password. Skip it and the dashboard is
+at `http://127.0.0.1:7766` (the General page has a button to add the name later). Then press **Start** on the General page to create your first VM.
 Add `--kubectl` for kubectl, `--no-service` to skip the login item, `--dry-run` to see the steps
 first: `curl -fsSL …/install.sh | bash -s -- --dry-run`.
 
 Colima Dashboard updates itself when a new release is out (untick "Update automatically" on the
-General page to stop that). To remove it: `colima-dashboard uninstall-service` and delete the
-binary from Homebrew's `bin` folder.
+General page to stop that). To remove it: `colima-dashboard uninstall-service`, delete the
+binary from Homebrew's `bin` folder, and remove the `colima.localhost` line from `/etc/hosts`.
 
 ## Build from source
 
@@ -83,10 +85,12 @@ go build -o colima-dashboard ./cmd/colima-dashboard
 ./colima-dashboard install-service   # start at login
 ```
 
-Screens: General, Monitor (live graphs per VM and per container), Containers, Images, Volumes,
-Kubernetes, Preferences and Troubleshooting.
+Screens: General, Monitor (live graphs per VM and per container, plus 1, 7 and 30 day history
+with a forecast of when the VM disk fills), Containers, Runs and tests (every container run:
+pass rate, median and slowest times, flaky and slowing tests, out of memory kills), Builds (build
+times and cache hit rate per image), Images, Volumes, Kubernetes, Preferences and Troubleshooting.
 
-- Runs at `http://127.0.0.1:7766`, on this Mac only.
+- Runs at `http://colima.localhost:7766` (or `http://127.0.0.1:7766`), on this Mac only.
 - One Go binary with the page built in; no Electron, no Node, no runtime to install.
 - Talks to Colima through its CLI and to Docker through Colima's socket. Changes nothing until you
   press a button, and asks in the page before anything destructive.
