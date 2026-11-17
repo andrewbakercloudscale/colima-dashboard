@@ -156,3 +156,15 @@ func (js *Jobs) List() []JobInfo {
 	}
 	return out
 }
+
+// Running reports whether any job is still running (a self-update waits for them).
+func (js *Jobs) Running() bool {
+	js.mu.Lock()
+	defer js.mu.Unlock()
+	for _, j := range js.jobs {
+		if !j.snapshot().Done {
+			return true
+		}
+	}
+	return false
+}

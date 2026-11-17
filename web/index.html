@@ -10,6 +10,14 @@
 <script src="/static/app.js" defer></script>
 </head>
 <body>
+<div id="splash" class="splash" aria-hidden="true">
+  <div class="splash-card">
+    <img src="/static/icon.svg" alt="" width="64" height="64" class="splash-logo">
+    <div class="splash-name">Colima Dashboard</div>
+    <div class="splash-sub" id="splashsub">Connecting to Colima…</div>
+    <div class="splash-bar"><span></span></div>
+  </div>
+</div>
 <div class="app">
   <aside class="side">
     <div class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"><span>Colima Dashboard</span></div>
@@ -34,6 +42,20 @@
   </aside>
   <main id="main" class="main" tabindex="-1"></main>
 </div>
+
+<footer id="statusbar" class="statusbar" aria-label="Status">
+  <span id="sb-version"></span>
+  <span id="sb-net"></span>
+  <span id="sb-k8s"></span>
+  <span id="sb-engine"></span>
+  <button type="button" id="sb-update" class="sb-update" hidden></button>
+  <span class="sb-fill"></span>
+  <button type="button" id="sb-job" class="sb-job" hidden aria-label="Show the running task">
+    <span id="sb-jobtitle"></span>
+    <span class="sb-progress"><span id="sb-jobbar"></span></span>
+    <span id="sb-jobtime" class="mono"></span>
+  </button>
+</footer>
 
 <section id="jobpanel" class="jobpanel" hidden aria-label="Running task">
   <div id="jobgrip" class="jobgrip" role="separator" aria-orientation="horizontal" aria-label="Resize output (drag, or use the arrow keys)" tabindex="0"></div>
