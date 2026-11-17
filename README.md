@@ -14,6 +14,12 @@ troubleshooting) in one small binary, opened in your browser.
 Colima Dashboard is an independent project. It is not affiliated with or endorsed by Colima, Rancher
 Desktop or SUSE.
 
+## Credits
+
+Some ideas, not code, came from reading two other MIT-licensed Colima front ends:
+[vnknowledge2014/colima-ui](https://github.com/vnknowledge2014/colima-ui) (finding the Colima
+folder, the PATH a LaunchAgent gets) and [jsynowiec/ColimaUI](https://github.com/jsynowiec/ColimaUI).
+
 ## Licence
 
 Apache 2.0. See [LICENSE](LICENSE).
