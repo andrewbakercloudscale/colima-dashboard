@@ -274,7 +274,8 @@ function closeDrawer() {
 }
 $("#drawerclose").addEventListener("click", closeDrawer);
 $("#drawer").addEventListener("click", (e) => { if (e.target.id === "drawer") closeDrawer(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#drawer").hidden && $("#modal").hidden) closeDrawer(); });
+// Escape inside a terminal belongs to the program running there (vim, less), not the drawer.
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#drawer").hidden && $("#modal").hidden && !e.target.closest?.(".xterm")) closeDrawer(); });
 
 // ---------- shell: profile picker, nav, status ----------
 
@@ -327,7 +328,7 @@ $("#profile").addEventListener("change", (e) => {
   refreshStatusInfo();
 });
 
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => { if (!$("#drawer").hidden) closeDrawer(); render(); });
 
 function setTimer(fn, ms) {
   clearInterval(state.timer);
@@ -678,19 +679,20 @@ function showFiles(id, name) {
       list.replaceChildren(el("div.notice", el("p", e.message), el("p.small", "You can still download this folder as a .tar: "), dl(dir, "dir")));
       return;
     }
-    const kindOrder = { dir: 0, link: 1, file: 2 };
+    const kindOrder = { dir: 0, dirlink: 0, link: 1, file: 2 };
     d.entries.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.name.localeCompare(b.name));
-    const icon = (k) => el(`span.ficon.${k}`, k === "dir" ? "▸" : k === "link" ? "↪" : "•");
+    const icon = (k) => el(`span.ficon.${k}`, k === "dir" ? "▸" : k === "dirlink" ? "↪▸" : k === "link" ? "↪" : "•");
     const rows = d.entries.map((f) => {
       const p = join(d.path, f.name);
-      const open = f.kind === "dir" || f.kind === "link"
+      const isDir = f.kind === "dir" || f.kind === "dirlink";
+      const open = isDir
         ? () => go(p)
         : () => view(p, f);
       return el("tr",
         el("td", icon(f.kind), " ", el("button.link.mono", { type: "button", onclick: open }, f.name)),
-        el("td.small.num", f.kind === "dir" ? "–" : bytes(f.size)),
+        el("td.small.num", isDir ? "–" : bytes(f.size)),
         el("td.small.muted", f.modified ? new Date(f.modified * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "–"),
-        el("td.actions", f.kind === "dir" ? dl(p, "dir") : dl(p, "file")));
+        el("td.actions", isDir ? dl(p, "dir") : dl(p, "file")));
     });
     list.replaceChildren(
       el("div.files-head", el("span.muted.small", `${d.entries.length} item${d.entries.length === 1 ? "" : "s"}${d.truncated ? " (first 2000 shown)" : ""}`), dl(d.path, "dir")),
@@ -1053,11 +1055,10 @@ async function renderSnapshots(main) {
     try { await api("DELETE", `${P()}/snapshots/${encodeURIComponent(sn.id)}`); toast("Snapshot deleted"); render(); } catch (e) { toast(e.message, true); }
   };
   listCard.replaceChildren(el("h2", "Saved"), el("div.table-wrap", el("table",
-    el("thead", el("tr", el("th", "Name"), el("th", "Saved"), el("th", "Size"), el("th"))),
+    el("thead", el("tr", el("th", "Name"), el("th", "Saved"), el("th"))),
     el("tbody", list.map((sn) => el("tr",
       el("td", el("strong", sn.name), sn.auto ? [" ", el("span.pill.x", "automatic")] : null),
       el("td.small", new Date(sn.created).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), el("div.muted.small", ago(Date.parse(sn.created) / 1000))),
-      el("td.small.num", bytes(sn.size), el("div.muted.small", "shared with the VM")),
       el("td.actions",
         el("button.ghost.mini", { type: "button", disabled: running, title: running ? "Stop the profile first" : "", onclick: () => restore(sn) }, "Restore"),
         el("button.ghost.mini.danger", { type: "button", onclick: () => del(sn) }, "Delete"))))))));

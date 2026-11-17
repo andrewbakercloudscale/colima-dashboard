@@ -471,6 +471,9 @@ func (r *Recorder) PollBuilds(ctx context.Context, profile string) {
 			continue // already stored, or still running
 		}
 		seen[b.Ref] = true
+		if b.Status == "Error" && b.Error == "" {
+			b.Error = buildError(ctx, filepath.Join(r.ColimaHome, profile, "docker.sock"), b.Ref)
+		}
 		if err := r.Store.AddBuild(profile, b); err != nil {
 			r.logf("history: %v", err)
 		}
@@ -512,6 +515,41 @@ func readBuilds(ctx context.Context, sock string) ([]Build, error) {
 		return nil, err
 	}
 	return parseBuilds(out), nil
+}
+
+// buildError asks BuildKit why a build failed: the failing step and its message, or "" when
+// buildx cannot say.
+func buildError(ctx context.Context, sock, ref string) string {
+	bin, err := exec.LookPath("docker")
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "buildx", "history", "inspect", ref, "--format", "json")
+	cmd.Env = append(os.Environ(), "DOCKER_HOST=unix://"+sock)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return parseBuildError(out)
+}
+
+func parseBuildError(out []byte) string {
+	var v struct {
+		Error *struct{ Name, Message string }
+	}
+	if json.Unmarshal(out, &v) != nil || v.Error == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(v.Error.Message)
+	if n := strings.TrimSpace(v.Error.Name); n != "" {
+		msg = n + ": " + msg
+	}
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	return msg
 }
 
 // parseBuilds reads `docker buildx history ls --format json`: one object per line (newer buildx)
