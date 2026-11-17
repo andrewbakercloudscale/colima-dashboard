@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colima UI</title>
+<link rel="icon" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/charts.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"><span>Colima UI</span></div>
+    <label class="profile-pick">
+      <span>Profile</span>
+      <select id="profile" aria-label="Colima profile"></select>
+    </label>
+    <div id="vmstate" class="vmstate" aria-live="polite"></div>
+    <nav id="nav">
+      <a href="#general" data-tab="general">General</a>
+      <a href="#monitor" data-tab="monitor">Monitor</a>
+      <a href="#containers" data-tab="containers">Containers</a>
+      <a href="#images" data-tab="images">Images</a>
+      <a href="#volumes" data-tab="volumes">Volumes</a>
+      <a href="#kubernetes" data-tab="kubernetes">Kubernetes</a>
+      <a href="#preferences" data-tab="preferences">Preferences</a>
+      <a href="#troubleshooting" data-tab="troubleshooting">Troubleshooting</a>
+    </nav>
+    <div class="side-foot" id="versions"></div>
+  </aside>
+  <main id="main" class="main" tabindex="-1"></main>
+</div>
+
+<section id="jobpanel" class="jobpanel" hidden aria-label="Running task">
+  <header>
+    <span id="jobtitle"></span>
+    <span id="jobstate" class="pill"></span>
+    <button type="button" id="jobclose" class="ghost" aria-label="Close output">Close</button>
+  </header>
+  <pre id="joblog" class="log"></pre>
+</section>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modaltitle">
+    <h2 id="modaltitle"></h2>
+    <div id="modalbody"></div>
+    <div class="modal-actions">
+      <button type="button" id="modalcancel" class="ghost">Cancel</button>
+      <button type="button" id="modalok"></button>
+    </div>
+  </div>
+</div>
+
+<div id="drawer" class="drawer" hidden>
+  <div class="drawer-card" role="dialog" aria-modal="true" aria-labelledby="drawertitle">
+    <header>
+      <h2 id="drawertitle"></h2>
+      <button type="button" id="drawerclose" class="ghost">Close</button>
+    </header>
+    <div id="drawerbody" class="drawer-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
