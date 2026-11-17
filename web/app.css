@@ -145,29 +145,42 @@ tr.group td { background: var(--side); font-weight: 600; }
   background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
   margin: 0; max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.log .err { color: var(--bad); }
-/* Formatted log lines (logfmt.js) */
-.log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; }
-.lg { padding: 0 2px; border-radius: 3px; }
-.lg:hover { background: rgba(127,127,127,.08); }
-.lg-stderr { box-shadow: inset 2px 0 0 var(--bad); padding-left: 6px; }
-.lg-ts { color: var(--muted); }
-.lg-lvl { display: inline-block; min-width: 46px; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .03em; border-radius: 4px; padding: 0 4px; }
-.lv-info { background: color-mix(in srgb, var(--series-1) 18%, transparent); color: var(--series-1); }
-.lv-warn { background: var(--warn-soft); color: var(--warn); }
-.lv-error { background: var(--bad-soft); color: var(--bad); }
-.lv-debug { background: var(--code); color: var(--muted); border: 1px solid var(--line); }
-.lg-word.lv-info, .lg-word.lv-warn, .lg-word.lv-error, .lg-word.lv-debug { padding: 0 3px; border-radius: 3px; font-weight: 600; }
-.lv-warn-text { color: var(--warn); }
-.lv-error-text { color: var(--bad); font-weight: 600; }
-.lg-key { color: var(--series-7); }
-.lg-val { color: var(--text); }
-.lg-http { font-weight: 700; }
-.lg-http.h2 { color: var(--ok); } .lg-http.h3 { color: var(--series-1); } .lg-http.h4 { color: var(--warn); } .lg-http.h5 { color: var(--bad); }
+/* Formatted log lines (logfmt.js): a terminal-style dark panel in both themes, so colours pop. */
+.log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.6;
+  background: #0f1720; color: #d6dde6; border-color: #1f2a36; }
+.log .muted { color: #7d8a99; }
+.lg { padding: 0 4px; border-radius: 3px; }
+.lg:hover { background: rgba(255,255,255,.05); }
+.lg-stderr { box-shadow: inset 2px 0 0 #f87171; padding-left: 8px; }
+.lg-ts { color: #6b7a8c; }
+.lg-lvl { display: inline-block; min-width: 50px; text-align: center; font-size: 10.5px; font-weight: 800; letter-spacing: .04em; border-radius: 4px; padding: 0 5px; }
+.lg-lvl.lv-info { background: #12355e; color: #7cc0ff; }
+.lg-lvl.lv-warn { background: #4a3608; color: #fbbf24; }
+.lg-lvl.lv-error { background: #5a1717; color: #fca5a5; }
+.lg-lvl.lv-debug { background: #232d39; color: #94a3b8; }
+.lv-info-text { color: #e6edf3; }
+.lv-debug-text { color: #95a3b3; }
+.lv-warn-text { color: #fcd34d; }
+.lv-error-text { color: #fca5a5; font-weight: 600; }
+.lg-word { padding: 0 3px; border-radius: 3px; font-weight: 700; }
+.lg-word.lv-info { color: #7cc0ff; } .lg-word.lv-warn { color: #fbbf24; } .lg-word.lv-error { color: #ffffff; background: #b42318; } .lg-word.lv-debug { color: #94a3b8; }
+.lg-key { color: #c4a7ff; }
+.lg-val { color: #e6edf3; }
+.tk-url { color: #7cc0ff; text-decoration: underline; text-decoration-color: rgba(124,192,255,.4); }
+.tk-str { color: #a5e3a1; }
+.tk-code { color: #f0abfc; }
+.tk-tag { color: #c4a7ff; font-weight: 700; }
+.tk-path { color: #5eead4; }
+.tk-flag { color: #fdba74; }
+.tk-ip { color: #93c5fd; }
+.tk-num { color: #fca5a5; }
+.lg-http { font-weight: 800; }
+.lg-http.h2 { color: #4ade80; } .lg-http.h3 { color: #7cc0ff; } .lg-http.h4 { color: #fbbf24; } .lg-http.h5 { color: #f87171; }
+.log mark { background: #fde047; color: #111; border-radius: 2px; }
+.log .err { color: #fca5a5; }
 .ansi-b { font-weight: 700; }
-.ansi-c0 { color: var(--muted); } .ansi-c1 { color: #d63a3a; } .ansi-c2 { color: #1f9d55; } .ansi-c3 { color: #b7791f; }
-.ansi-c4 { color: #2a78d6; } .ansi-c5 { color: #9b51e0; } .ansi-c6 { color: #0e9aa7; } .ansi-c7 { color: var(--text); }
-.log mark { background: var(--warn-soft); color: inherit; }
+.ansi-c0 { color: #7d8a99; } .ansi-c1 { color: #f87171; } .ansi-c2 { color: #4ade80; } .ansi-c3 { color: #fbbf24; }
+.ansi-c4 { color: #60a5fa; } .ansi-c5 { color: #c084fc; } .ansi-c6 { color: #22d3ee; } .ansi-c7 { color: #e6edf3; }
 
 .copy { display: flex; gap: 6px; align-items: center; }
 .copy code { background: var(--code); padding: 3px 6px; border-radius: 6px; overflow-wrap: anywhere; }
