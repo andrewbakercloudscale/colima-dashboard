@@ -1,0 +1,12 @@
+# Build output
+/colima-ui
+/dist/
+*.test
+*.out
+
+# Local session notes: never published
+CLAUDE.md
+docs/HANDOVER.md
+
+.DS_Store
+.playwright-mcp/
