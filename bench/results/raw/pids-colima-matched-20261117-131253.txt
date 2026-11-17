@@ -1,0 +1,6 @@
+2274 25370 99044 99305 99486
+ 2274    976 ssh: ~/.colima/_lima/colima-bench/ssh.sock [mux]                                   
+25370   7568 ~/Desktop/github/colima-ui/colima-dashboard --no-browser
+99044  16576 /opt/homebrew/bin/limactl usernet -p ~/.colima/_lima/_networks/user-v2/usernet_user-v2.pid -e ~/.colima/_lima/_networks/user-v2/user-v2_ep.sock --listen-qemu ~/.colima/_lima/_networks/user-v2/user-v2_qemu.sock --listen ~/.colima/_lima/_networks/user-v2/user-v2_fd.sock --subnet 192.168.5.0/24
+99305  22208 /opt/homebrew/bin/limactl hostagent --pidfile ~/.colima/_lima/colima-bench/ha.pid --socket ~/.colima/_lima/colima-bench/ha.sock --guestagent /opt/homebrew/share/lima/lima-guestagent.Linux-aarch64.gz colima-bench
+99486 109344 /System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine

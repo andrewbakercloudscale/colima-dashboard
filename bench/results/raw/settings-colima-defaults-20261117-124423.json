@@ -1,0 +1,1 @@
+{"display_name":"colima [profile=bench]","driver":"macOS Virtualization.Framework","arch":"aarch64","runtime":"docker","mount_type":"virtiofs","docker_socket":"unix://~/.colima/bench/docker.sock","containerd_socket":"unix://~/.colima/bench/containerd.sock","kubernetes":false,"cpu":2,"memory":2147483648,"disk":107374182400}
