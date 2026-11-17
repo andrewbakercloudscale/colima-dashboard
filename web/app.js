@@ -980,6 +980,8 @@ const NAV_ICONS = {
   troubleshooting: ["#be123c", "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"],
   diagnostics: ["#b91c1c", "M12 3l9 16H3zM12 10v4M12 17v.5"],
   ports: ["#0e7490", "M4 8h12l-3-3M20 16H8l3 3"],
+  runs: ["#15803d", "M4 6h9M4 12h9M4 18h5M14 16l3 3 5-6"],
+  builds: ["#9333ea", "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"],
 };
 function decorateNav() {
   for (const a of document.querySelectorAll("#nav a")) {
@@ -1329,6 +1331,9 @@ async function pollMetrics() {
 }
 
 const RANGES = { "5m": 5 * 60e3, "15m": 15 * 60e3, "1h": 60 * 60e3 };
+// Long ranges come from the history kept on disk (a sample every 5 minutes), not the live samples.
+const LONG = { "1d": 1, "7d": 7, "30d": 30 };
+const RANGE_LABELS = { "5m": "5 min", "15m": "15 min", "1h": "1 hour", "1d": "1 day", "7d": "7 days", "30d": "30 days" };
 
 function cname(id) { return metrics.names[id] || id.slice(0, 12); }
 function ccolor(id) { return Charts.seriesColor(metrics.slots.get(id) ?? -1); }
@@ -1362,7 +1367,14 @@ async function renderMonitor(main) {
   const range = safeGet("range") || "15m";
   const head = el("div.head",
     el("div", el("h1", "Monitor"), el("p.muted", `Live graphs for profile ${state.profile}: the VM, what it costs your Mac, and every container.`)),
-    el("div.seg", Object.keys(RANGES).map((r) => el(`button.${r === range ? "on" : "off"}`, { type: "button", onclick: () => { safeSet("range", r); drawMonitor(); } }, r === "1h" ? "1 hour" : r === "15m" ? "15 min" : "5 min"))));
+    el("div.seg", Object.keys(RANGE_LABELS).map((r) => el(`button.${r === range ? "on" : "off"}`, { type: "button", "data-range": r, onclick: () => { safeSet("range", r); render(); } }, RANGE_LABELS[r]))));
+  if (LONG[range]) {
+    const body = el("div", { id: "monitor" }, el("div.card", el("p.muted", "Loading…")));
+    main.replaceChildren(head, body);
+    await drawHistory(body, LONG[range]);
+    setTimer(() => drawHistory(body, LONG[range]), 60000);
+    return;
+  }
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div", { id: "monitor" });
   body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart"); });
@@ -1380,8 +1392,8 @@ function drawMonitor(dataOnly) {
   if (!dataOnly) return render();
   const body = $("#monitor");
   if (!body) return;
-  const range = safeGet("range") || "15m";
-  for (const b of document.querySelectorAll(".seg button")) b.className = b.textContent.startsWith(range === "1h" ? "1" : range === "15m" ? "15" : "5") ? "on" : "off";
+  const range = RANGES[safeGet("range")] ? safeGet("range") : "15m";
+  for (const b of document.querySelectorAll(".seg button")) b.className = b.dataset.range === range ? "on" : "off";
   const all = metrics.samples;
   const last = all[all.length - 1];
   if (!last || !last.guest) {
@@ -1470,5 +1482,198 @@ function drawMonitor(dataOnly) {
 }
 
 tabs.monitor = renderMonitor;
+
+// ---------- History: days of samples, runs and builds ----------
+
+function dur(sec) {
+  if (sec === undefined || sec === null) return "–";
+  if (sec < 1) return `${Math.round(sec * 1000)} ms`;
+  if (sec < 90) return `${sec.toFixed(sec < 10 ? 1 : 0)} s`;
+  if (sec < 5400) return `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s`;
+  return `${(sec / 3600).toFixed(1)} h`;
+}
+function pctRate(f) { return f < 0 ? "–" : `${Math.round(f * 100)}%`; }
+function whenAgo(t) { return ago(Date.parse(t) / 1000); }
+function outcomePill(o) { return el(`span.pill.${{ pass: "ok", fail: "fail", oom: "fail", stopped: "x" }[o] || "x"}`, o === "oom" ? "out of memory" : o); }
+
+function daysSeg(days, onPick) {
+  return el("div.seg", [1, 7, 30].map((d) => el(`button.${d === days ? "on" : "off"}`, { type: "button", onclick: () => onPick(d) }, d === 1 ? "1 day" : `${d} days`)));
+}
+
+function recordingNote(rec, what) {
+  return rec ? el("p.small.muted", `Recorded from Docker's own events while Colima Dashboard runs; kept 30 days on this Mac. ${what}`)
+    : el("div.notice", `Profile ${state.profile} is not running, so nothing new is being recorded. Start it and runs are recorded again.`);
+}
+
+async function renderRuns(main) {
+  const days = Number(safeGet("rundays")) || 7;
+  const head = el("div.head",
+    el("div", el("h1", "Runs and tests"), el("p.muted", `Every container that ran in ${state.profile}: how long it took and how it ended.`)),
+    daysSeg(days, (d) => { safeSet("rundays", String(d)); render(); }));
+  main.replaceChildren(head, el("div.card", el("p.muted", "Loading…")));
+  const d = await api("GET", `${P()}/runs?days=${days}`);
+  if (!d.total) {
+    main.replaceChildren(head, el("div.card.empty",
+      el("p", "No runs recorded yet."),
+      el("p.muted", "Run a test container, for example ", el("code", "docker compose run --rm tests"), " or ", el("code", "docker run --rm your-image npm test"), ", and it appears here with its time and result. Long-running services appear when they stop.")),
+    recordingNote(d.recording, ""));
+    return;
+  }
+  const own = d.jobs.reduce((a, j) => a + j.pass + j.fail + j.oom, 0);
+  const passed = d.jobs.reduce((a, j) => a + j.pass, 0);
+  const flaky = d.jobs.filter((j) => j.flaky);
+  const slow = d.jobs.filter((j) => j.slower >= 1.2);
+  const failing = d.jobs.filter((j) => j.last.outcome === "fail" || j.last.outcome === "oom");
+  const stats = el("div.stat-row",
+    stat(String(d.total), "runs"),
+    stat(own ? pctRate(passed / own) : "–", "passed", "of runs that ended on their own"),
+    stat(String(failing.length), "failing now", "last run failed", failing.length ? "bad" : ""),
+    stat(String(flaky.length), "flaky", "passed and failed in the last 10 runs", flaky.length ? "warn" : ""),
+    stat(String(slow.length), "slower", "last 5 runs 20% or more slower than before", slow.length ? "warn" : ""));
+  const legend = el("div.legend.small", ["pass", "fail", "oom", "stopped"].map((o) => { const sw = el("span.sw"); sw.style.background = Charts.OUTCOME_COLORS[o]; return el("span.lgd", sw, o === "oom" ? "out of memory" : o); }));
+  const jobs = el("div.card.viz", el("div.viz-head", el("h2", "By service or image"), legend),
+    el("div.table-wrap", el("table",
+      el("thead", el("tr", ["", "Runs", "Passed", "Median", "Slowest 10%", "Last run", "Trend"].map((x) => el("th", x)))),
+      el("tbody", d.jobs.map((j) => el("tr",
+        el("td", el("strong.mono", j.job),
+          el("div.flags", j.flaky ? el("span.pill.warn", "flaky") : null,
+            j.slower >= 1.2 ? el("span.pill.warn", `${Math.round((j.slower - 1) * 100)}% slower`) : null,
+            j.oom ? el("span.pill.fail", `${j.oom} out of memory`) : null,
+            j.restarts ? el("span.pill.x", `${j.restarts} restarts`) : null,
+            j.unhealthy ? el("span.pill.warn", `${j.unhealthy} unhealthy`) : null)),
+        el("td.mono", String(j.runs)),
+        el("td.mono", j.passRate < 0 ? el("span.muted", "service") : `${pctRate(j.passRate)}`, j.fail ? el("div.muted.small", `${j.fail} failed`) : null),
+        el("td.mono", j.passRate < 0 ? "–" : dur(j.median)),
+        el("td.mono", j.passRate < 0 ? "–" : dur(j.p90)),
+        el("td", outcomePill(j.last.outcome), el("div.muted.small", `${whenAgo(j.last.t)}, ${dur(j.last.seconds)}`)),
+        el("td", Charts.runBars(j.trend, dur))))))));
+  const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.muted.small", `newest first, ${d.total} in all`)),
+    el("div.table-wrap", el("table",
+      el("thead", el("tr", ["When", "Container", "Result", "Exit code", "Took"].map((x) => el("th", x)))),
+      shortBody(d.recent.slice(0, 100).map((r) => el("tr",
+        el("td.small", new Date(r.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })),
+        el("td", el("strong", r.name), el("div.muted.small.mono", r.job)),
+        el("td", outcomePill(r.outcome), r.restarted ? el("span.muted.small", " restarted") : null),
+        el("td.mono", String(r.exit)),
+        el("td.mono", dur(r.seconds))))))));
+  main.replaceChildren(head, stats, jobs, recent,
+    recordingNote(d.recording, "A run counts as passed when it exits 0 by itself; stopping a container yourself is not a failure."));
+}
+
+// shortBody shows the first 12 rows of a long table, with a row to show the rest.
+function shortBody(rows, n = 12) {
+  const body = el("tbody", rows.slice(0, n));
+  if (rows.length > n) {
+    const more = el("button.ghost.mini", { type: "button" }, `Show ${rows.length - n} more`);
+    const tr = el("tr", el("td", { colspan: 9 }, more));
+    more.addEventListener("click", () => body.replaceChildren(...rows));
+    body.append(tr);
+  }
+  return body;
+}
+
+function stat(value, label, title, tone) {
+  return el(`div.stat${tone ? "." + tone : ""}`, { title: title || "" }, el("strong", value), el("span", label));
+}
+
+async function renderBuilds(main) {
+  const days = Number(safeGet("builddays")) || 7;
+  const head = el("div.head",
+    el("div", el("h1", "Builds"), el("p.muted", `Image builds in ${state.profile}: how long each took, how much came from cache, and the trend.`)),
+    daysSeg(days, (d) => { safeSet("builddays", String(d)); render(); }));
+  main.replaceChildren(head, el("div.card", el("p.muted", "Loading…")));
+  const d = await api("GET", `${P()}/builds?days=${days}`);
+  const parts = [head];
+  if (d.error) {
+    const noBuildx = /buildx is not installed/.test(d.error);
+    parts.push(el("div.notice.bad", el("p", "Builds cannot be read: ", d.error, "."),
+      noBuildx ? fixRow({ id: "buildx", title: "docker buildx", fix: "brew install docker-buildx", action: "terminal" }) : null));
+  }
+  if (!d.total) {
+    parts.push(el("div.card.empty", el("p", "No builds recorded yet."),
+      el("p.muted", "Build an image, for example ", el("code", "docker build -t app ."), " or ", el("code", "docker compose build"), ", and it appears here within two minutes.")));
+    parts.push(recordingNote(d.recording, ""));
+    main.replaceChildren(...parts);
+    return;
+  }
+  const slow = d.names.filter((b) => b.slower >= 1.2);
+  const completed = d.names.reduce((a, b) => a + b.builds - b.failed, 0);
+  const failed = d.names.reduce((a, b) => a + b.failed, 0);
+  parts.push(el("div.stat-row",
+    stat(String(d.total), "builds"),
+    stat(String(failed), "failed", "", failed ? "bad" : ""),
+    stat(String(slow.length), "slower", "last 5 builds 20% or more slower than before", slow.length ? "warn" : ""),
+    stat(String(d.names.length), "images", "distinct build names")));
+  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "By image"), el("span.muted.small", `${completed} completed`)),
+    el("div.table-wrap", el("table",
+      el("thead", el("tr", ["", "Builds", "Median", "From cache", "Last build", "Trend"].map((x) => el("th", x)))),
+      el("tbody", d.names.map((b) => el("tr",
+        el("td", el("strong.mono", b.name || "(unnamed)"), el("div.flags",
+          b.slower >= 1.2 ? el("span.pill.warn", `${Math.round((b.slower - 1) * 100)}% slower`) : null,
+          b.failed ? el("span.pill.fail", `${b.failed} failed`) : null)),
+        el("td.mono", String(b.builds)),
+        el("td.mono", dur(b.median)),
+        el("td.mono", pctRate(b.cacheRate), el("div.muted.small", "of steps")),
+        el("td", outcomePill(b.last.status === "Completed" ? "pass" : "fail"), el("div.muted.small", `${whenAgo(b.last.t)}, ${dur(b.last.seconds)}`)),
+        el("td", Charts.runBars(b.trend, dur)))))))));
+  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "Recent builds"), el("span.muted.small", "newest first")),
+    el("div.table-wrap", el("table",
+      el("thead", el("tr", ["When", "Image", "Result", "Steps", "Took"].map((x) => el("th", x)))),
+      shortBody(d.recent.slice(0, 100).map((b) => el("tr",
+        el("td.small", new Date(b.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
+        el("td", el("strong.mono", b.name || "(unnamed)"), b.error ? el("div.small.bad-text", b.error) : null),
+        el("td", outcomePill(b.status === "Completed" ? "pass" : "fail")),
+        el("td.mono", `${b.cached}/${b.steps} cached`),
+        el("td.mono", dur(b.seconds)))))))));
+  parts.push(recordingNote(d.recording, "Read from BuildKit's build history every 2 minutes."));
+  main.replaceChildren(...parts);
+}
+
+async function drawHistory(body, days) {
+  const d = await api("GET", `${P()}/history?days=${days}`);
+  const pts = d.points || [];
+  if (pts.length < 2) {
+    body.replaceChildren(el("div.card.empty", el("p", "Not enough history yet."),
+      el("p.muted", "Colima Dashboard samples each running profile every 5 minutes and keeps 30 days. The first lines appear after about 10 minutes.")),
+      recordingNote(d.recording, ""));
+    return;
+  }
+  const times = pts.map((p) => Date.parse(p.t));
+  const end = Date.now();
+  const domain = [end - days * 86400e3, end];
+  const opts = { times, domain, gapMs: 16 * 60e3 };
+  const chart = (title, note, o) => el("div.card.viz", el("div.viz-head", el("h2", title), note ? el("span.muted.small", note) : null), Charts.timeChart({ ...opts, ...o }));
+  const pctFmt = (v) => `${v.toFixed(v < 10 ? 1 : 0)}%`;
+  const cards = [];
+  const f = d.forecast;
+  if (f) {
+    const full = f.days >= 0 && f.days < 3650;
+    cards.push(el(`div.notice${full && f.days < 30 ? ".bad" : full && f.days < 90 ? "" : ".ok"}`,
+      el("strong", "VM disk: "), `${bytes(f.used)} of ${bytes(f.size)} used on your Mac. `,
+      f.perDay > 1 << 20 ? `Growing about ${bytes(f.perDay)} a day over the last ${f.window.toFixed(f.window < 2 ? 1 : 0)} days` : "Not growing",
+      full ? `, so it fills in about ${Math.round(f.days)} days.` : ".",
+      f.reliable ? "" : " (Less than a day of history: an early estimate.)",
+      full && f.days < 90 ? el("span", " ", el("a", { href: "#troubleshooting" }, "Clean up downloads"), " or prune unused images.") : null));
+  }
+  cards.push(el("div.viz-grid",
+    chart("Mac CPU used by the VM", "% of one Mac core, 5 minute average", { series: [{ name: "VM on the Mac", color: Charts.seriesColor(6), fill: true, values: pts.map((p) => p.hostCpu ?? null) }], fmt: pctFmt }),
+    chart("Mac memory used by the VM", "physical footprint", { series: [{ name: "VM on the Mac", color: Charts.seriesColor(6), fill: true, values: pts.map((p) => p.hostMem || null) }], fmt: bytes })));
+  const dockerPts = pts.filter((p) => p.images !== undefined);
+  const dtimes = dockerPts.map((p) => Date.parse(p.t));
+  cards.push(el("div.viz-grid",
+    chart("VM disk on your Mac", "space the VM's disk image takes", { series: [{ name: "On the Mac", color: Charts.seriesColor(2), fill: true, values: pts.map((p) => p.diskMac || null) }], fmt: bytes }),
+    el("div.card.viz", el("div.viz-head", el("h2", "Docker disk use"), el("span.muted.small", "every 15 minutes")),
+      Charts.timeChart({ times: dtimes, domain, gapMs: 31 * 60e3, stacked: true, fmt: bytes, empty: "Not sampled yet.",
+        series: [["Images", "images", 0], ["Build cache", "buildCache", 1], ["Volumes", "volumes", 3], ["Containers", "containers", 4]]
+          .map(([name, k, c]) => ({ name, color: Charts.seriesColor(c), values: dockerPts.map((p) => p[k] ?? null) })) }))));
+  const guest = pts.some((p) => p.guestCpu !== undefined);
+  cards.push(el("div.viz-grid",
+    chart("Running containers", "", { series: [{ name: "Running", color: Charts.seriesColor(0), values: pts.map((p) => p.running ?? null) }], fmt: (v) => v.toFixed(0) }),
+    guest ? chart("CPU inside the VM", "only while the Monitor was open", { series: [{ name: "VM CPU", color: Charts.seriesColor(1), values: pts.map((p) => p.guestCpu ?? null) }], fmt: pctFmt, yMax: 100 }) : el("div")));
+  body.replaceChildren(...cards, recordingNote(d.recording, "A sample every 5 minutes for each running profile."));
+}
+
+tabs.runs = renderRuns;
+tabs.builds = renderBuilds;
 
 boot();

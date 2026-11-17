@@ -666,3 +666,30 @@ func (r *containerReader) latest() (names, images map[string]string, stats map[s
 }
 
 func errorf(format string, a ...any) error { return fmt.Errorf(format, a...) }
+
+// GuestAverage returns the VM's own CPU % and memory in use, averaged over the samples taken
+// since a time. ok is false when nobody was watching the profile, so nothing was sampled.
+func (h *Hub) GuestAverage(profile string, since time.Time) (cpu float64, mem uint64, ok bool) {
+	h.mu.Lock()
+	c := h.cols[profile]
+	h.mu.Unlock()
+	if c == nil {
+		return 0, 0, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var n int
+	var memSum float64
+	for _, s := range c.samples {
+		if s.Guest == nil || s.T <= since.UnixMilli() {
+			continue
+		}
+		cpu += s.Guest.CPU
+		memSum += float64(s.Guest.MemUsed)
+		n++
+	}
+	if n == 0 {
+		return 0, 0, false
+	}
+	return cpu / float64(n), uint64(memSum / float64(n)), true
+}

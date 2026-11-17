@@ -404,3 +404,17 @@ body.locked { display: grid; place-items: center; padding: 16px; }
   .boot { grid-template-columns: 1fr; }
   .welcome { grid-template-columns: 1fr; }
 }
+
+/* Runs and tests, Builds */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.stat strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 12.5px; }
+.stat.bad strong { color: var(--bad); }
+.stat.warn strong { color: var(--warn); }
+.flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.flags:empty { display: none; }
+.runbars { width: 160px; height: 32px; display: block; }
+.lgd { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; color: var(--muted); }
+.lgd .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.bad-text { color: var(--bad); overflow-wrap: anywhere; }

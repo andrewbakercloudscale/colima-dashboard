@@ -32,6 +32,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics", s.auth(s.apiDiagnostics))
 	s.updateRoutes(m)
 	s.terminalRoutes(m)
+	s.historyRoutes(m)
 
 	m.HandleFunc("GET /api/profiles/{p}/status", s.auth(s.apiStatus))
 	m.HandleFunc("POST /api/profiles/{p}/actions/{action}", s.auth(s.apiProfileAction))
