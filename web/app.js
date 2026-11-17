@@ -617,7 +617,10 @@ async function showShell(id, name) {
   const term = new window.Terminal({
     cursorBlink: true, fontSize: 13, scrollback: 5000,
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-    theme: { background: "#0d1117", foreground: "#e6edf3", cursor: "#5eead4", selectionBackground: "#264f78" },
+    // a GitHub-dark style palette: the standard blue is unreadable on a near-black background
+    theme: { background: "#0d1117", foreground: "#e6edf3", cursor: "#5eead4", selectionBackground: "#264f78",
+      black: "#484f58", red: "#ff7b72", green: "#3fb950", yellow: "#d29922", blue: "#58a6ff", magenta: "#bc8cff", cyan: "#39c5cf", white: "#b1bac4",
+      brightBlack: "#6e7681", brightRed: "#ffa198", brightGreen: "#56d364", brightYellow: "#e3b341", brightBlue: "#79c0ff", brightMagenta: "#d2a8ff", brightCyan: "#56d4dd", brightWhite: "#ffffff" },
   });
   const fit = new window.FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -642,7 +645,7 @@ async function showShell(id, name) {
     term.dispose();
   };
   try {
-    ({ id: sid } = await api("POST", `${P()}/containers/${encodeURIComponent(id)}/shell`, { cols: term.cols, rows: term.rows }));
+    ({ id: sid } = await api("POST", `${P()}/containers/${encodeURIComponent(id)}/shell`, { cols: term.cols, rows: term.rows, name }));
   } catch (e) { setStatus(e.message, "bad"); return; }
   if (closed) { fetch(`/api/shells/${sid}`, { method: "DELETE", credentials: "same-origin" }).catch(() => {}); return; }
   setStatus("Connected", "on");

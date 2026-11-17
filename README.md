@@ -4,7 +4,15 @@ A lightweight, local web UI for [Colima](https://github.com/abiosoft/colima) on 
 screens of a desktop container app (status, containers, images, volumes, Kubernetes, preferences and
 troubleshooting) in one small binary, opened in your browser.
 
-**Status:** early release (0.1.0). See [docs/PLAN.md](docs/PLAN.md).
+**Install** with one line (macOS, Apple silicon or Intel, needs [Homebrew](https://brew.sh); it installs Colima and the Docker tools too):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewbakercloudscale/colima-dashboard/main/install.sh | bash
+```
+
+Then open http://colima.localhost:7766. Details and options are in [Install](#install).
+
+**Status:** early release (0.1.3). See [docs/PLAN.md](docs/PLAN.md).
 
 ![General page: welcome card, update check and profile status](docs/screenshots/general.png)
 
