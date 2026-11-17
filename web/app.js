@@ -1097,7 +1097,8 @@ async function refreshStatusInfo() {
   if (!prof || !isRunning()) { state.sbInfo = { profile: prof }; paintStatusBar(); return; }
   try {
     const st = await api("GET", `${P()}/status`);
-    const info = { profile: prof, engine: st.engine ? `${st.status?.runtime || "docker"} ${st.engine.Version}` : st.status?.runtime, k8s: st.status?.kubernetes };
+    const rt = st.status?.runtime === "docker" ? "moby" : st.status?.runtime;
+    const info = { profile: prof, engine: st.engine ? `${rt} ${st.engine.Version}` : rt, k8s: st.status?.kubernetes };
     if (info.k8s) {
       const prev = state.sbInfo?.profile === prof ? state.sbInfo.k8sVersion : null;
       info.k8sVersion = prev;
@@ -1114,14 +1115,16 @@ async function refreshStatusInfo() {
 }
 
 function paintStatusBar() {
+  // Same items as Rancher Desktop's status bar, label in bold, value plain.
   const ov = state.overview || {};
-  $("#sb-version").replaceChildren("Version: ", el("b", ov.version || "–"), ...(ov.colimaVersion ? [" · Colima ", el("b", ov.colimaVersion)] : []));
+  const item = (id, label, ...value) => $(id).replaceChildren(el("b", `${label}:`), " ", ...value);
+  item("#sb-version", "Version", ov.version || "–", ...(ov.colimaVersion ? [el("span.muted", ` (Colima ${ov.colimaVersion})`)] : []));
   const online = navigator.onLine && !/could not reach/i.test(state.updates?.checkError || "");
-  $("#sb-net").replaceChildren("Network: ", el("b", online ? "online" : "offline"), el(`span.dot${online ? "" : ".off"}`));
+  item("#sb-net", "Network status", online ? "online" : "offline", el(`span.dot${online ? "" : ".off"}`));
   const i = state.sbInfo || {};
   const running = isRunning();
-  $("#sb-k8s").replaceChildren("Kubernetes: ", el("b", !running ? "–" : i.k8s ? (i.k8sVersion || "on") : "off"));
-  $("#sb-engine").replaceChildren("Engine: ", el("b", running ? (i.engine || "…") : "stopped"));
+  item("#sb-k8s", "Kubernetes", !running ? "–" : i.k8s ? (i.k8sVersion || "on") : "off");
+  item("#sb-engine", "CE", running ? (i.engine || "…") : "stopped");
   const u = state.updates;
   const btn = $("#sb-update");
   const avail = u && ((u.dashboard?.newer && u.dashboard?.canUpdate) || u.colima?.newer);
