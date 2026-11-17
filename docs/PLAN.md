@@ -137,6 +137,6 @@ to measure, or use published figures and say so.
 
 ## Release
 
-- MIT or Apache 2.0 (the repo starts with Apache 2.0, like the user's other open source project).
+- Apache 2.0.
 - GitHub releases with a darwin/arm64 and darwin/amd64 binary, built by GitHub Actions.
 - No GitHub repo yet: create and push only when the owner says so.
