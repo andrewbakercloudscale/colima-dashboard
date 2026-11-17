@@ -28,10 +28,8 @@ Rules for every run:
 ## Decisions (owner, 17 Nov 2026)
 
 - Configurations: out of the box, matched, and matched plus Kubernetes (all three below).
-- Every metric, including memory, CPU, power (`powermetrics`) and a one hour battery test per tool.
-  `powermetrics` needs root: either the owner runs it when asked, or adds a narrow sudoers rule
-  for `/usr/bin/powermetrics` only. The battery test needs the Mac unplugged, one hour per tool
-  plus one hour baseline.
+- Memory, CPU and energy for every configuration. Energy is macOS's own energy impact figure from
+  `top` (no sudo); `powermetrics` and the battery test were dropped by the owner on 17 Nov 2026.
 - The old 59 GiB Rancher data is moved aside now and deleted at the end, after the owner confirms.
 - The post is drafted as Markdown in `docs/blog/`; the repo is created private under
   `andrewbakercloudscale/colima-dashboard` and made public when the post goes live.
@@ -58,11 +56,11 @@ Rules for every run:
 | M5 | Stop time | Stop command to no VM process | both |
 | M6 | Idle memory | Sum of host processes (app, helpers, Lima host agent, VZ VM process) by physical footprint, sampled every 5 s for 10 min after a 5 min settle | both |
 | M7 | Idle CPU | CPU % and accumulated CPU seconds over the same window | both |
-| M8 | Energy and power | `top -stats power` energy impact (no sudo) every run, plus `powermetrics` CPU/GPU/ANE milliwatts and per-process energy, baselined against the Mac with neither tool running | both |
+| M8 | Energy and power | `top -stats power` energy impact (no sudo) every run, baselined against the Mac with neither tool running | both |
 | M9 | Build time | Build one small sample image with a cold and a warm cache | both |
 | M10 | Bind mount I/O | Unpack a large source tree and run a file-heavy step on a host folder mounted in a container | both |
 | M11 | Kubernetes ready | Kubernetes on: start to `kubectl get nodes` Ready; idle memory with it on | both |
-| M12 | Battery drain | One hour idle on battery, lid open, screen on, percentage before and after | both |
+| M12 | Battery drain | Dropped (owner, 17 Nov 2026) | |
 | M13 | UI cost | Memory and CPU of the GUI alone: Rancher's Electron processes vs `colima-dashboard` | both |
 | M14 | Leftovers | What remains on disk after uninstall | Rancher (59 GiB found on this Mac) |
 
