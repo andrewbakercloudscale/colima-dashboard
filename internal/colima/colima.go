@@ -14,8 +14,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -64,6 +66,9 @@ func (ExecRunner) Stream(ctx context.Context, w io.Writer, name string, args ...
 type Client struct {
 	Bin    string
 	Runner Runner
+	// Home is colima's folder (~/.colima). When it is set, list and status answers are kept until
+	// a VM starts or stops or a profile's settings change, so an idle dashboard runs nothing.
+	Home string
 
 	mu   sync.Mutex
 	busy map[string]string // profile -> operation
@@ -85,13 +90,21 @@ type cached[T any] struct {
 	at  time.Time
 	val T
 	err error
+	// stamp is what colima's files looked like when val was fetched; settled is whether val
+	// can be trusted for as long as they look the same.
+	stamp   string
+	settled bool
 }
 
-func (c *cached[T]) get(ttl time.Duration, epoch *sync.Mutex, gen *int, fetch func() (T, error)) (T, error) {
+// getStamped also keeps an answer past ttl, up to stampMaxAge, while stamp is unchanged and
+// settled says the answer is not a passing state (a VM starting, say).
+func (c *cached[T]) getStamped(stamp string, settled func(T, error) bool, ttl time.Duration, epoch *sync.Mutex, gen *int, fetch func() (T, error)) (T, error) {
 	c.run.Lock()
 	defer c.run.Unlock()
 	epoch.Lock()
-	fresh := !c.at.IsZero() && time.Since(c.at) < ttl
+	age := time.Since(c.at)
+	fresh := !c.at.IsZero() && (age < ttl ||
+		(stamp != "" && stamp == c.stamp && c.settled && age < stampMaxAge))
 	val, err, g := c.val, c.err, *gen
 	epoch.Unlock()
 	if fresh {
@@ -100,16 +113,95 @@ func (c *cached[T]) get(ttl time.Duration, epoch *sync.Mutex, gen *int, fetch fu
 	val, err = fetch()
 	epoch.Lock()
 	if *gen == g {
-		c.at, c.val, c.err = time.Now(), val, err
+		c.at, c.val, c.err, c.stamp = time.Now(), val, err, stamp
+		c.settled = settled != nil && settled(val, err)
 	}
 	epoch.Unlock()
 	return val, err
 }
 
 const (
-	listTTL    = 8 * time.Second
-	versionTTL = 10 * time.Minute
+	listTTL     = 8 * time.Second
+	versionTTL  = 10 * time.Minute
+	stampMaxAge = 30 * time.Minute
 )
+
+// stamp describes colima's state from its files alone, without running anything: each VM's
+// host agent process (alive or not), its Docker socket and its settings files. Any start, stop
+// or edit changes it. "" when Home is not set.
+func (c *Client) stamp() string {
+	if c.Home == "" {
+		return ""
+	}
+	var b strings.Builder
+	mtime := func(p string) {
+		if fi, err := os.Stat(p); err == nil {
+			fmt.Fprintf(&b, "|%d", fi.ModTime().UnixNano())
+		} else {
+			b.WriteString("|-")
+		}
+	}
+	lima := filepath.Join(c.Home, "_lima")
+	ents, _ := os.ReadDir(lima)
+	for _, e := range ents {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), "_") {
+			continue
+		}
+		d := filepath.Join(lima, e.Name())
+		fmt.Fprintf(&b, "%s:%d", e.Name(), alivePID(filepath.Join(d, "ha.pid")))
+		mtime(filepath.Join(d, "lima.yaml"))
+		b.WriteByte(';')
+	}
+	ents, _ = os.ReadDir(c.Home)
+	for _, e := range ents {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), "_") {
+			continue
+		}
+		b.WriteString(e.Name())
+		mtime(filepath.Join(c.Home, e.Name(), "colima.yaml"))
+		mtime(filepath.Join(c.Home, e.Name(), "docker.sock"))
+		b.WriteByte(';')
+	}
+	return b.String()
+}
+
+// alivePID returns the process id in a pid file when that process is running, else 0.
+func alivePID(file string) int {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
+		return 0
+	}
+	return pid
+}
+
+// Running reports, from files alone, whether profile's VM is up and its Docker socket exists.
+func Running(home, profile string) bool {
+	if alivePID(filepath.Join(home, "_lima", LimaInstance(profile), "ha.pid")) == 0 {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(home, profile, "docker.sock"))
+	return err == nil
+}
+
+// binStamp changes when colima is upgraded.
+func (c *Client) binStamp() string {
+	p, err := exec.LookPath(c.Bin)
+	if err != nil {
+		return ""
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s|%d|%d", p, fi.Size(), fi.ModTime().UnixNano())
+}
 
 // Forget drops the cached list and status, so the next request sees a change at once.
 func (c *Client) Forget() {
@@ -159,7 +251,7 @@ type Status struct {
 
 // List returns every profile. colima prints one JSON object per line.
 func (c *Client) List(ctx context.Context) ([]Profile, error) {
-	cachedList, err := c.list.get(listTTL, &c.cmu, &c.gen, func() ([]Profile, error) { return c.listNow(ctx) })
+	cachedList, err := c.list.getStamped(c.stamp(), listSettled, listTTL, &c.cmu, &c.gen, func() ([]Profile, error) { return c.listNow(ctx) })
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +262,19 @@ func (c *Client) List(ctx context.Context) ([]Profile, error) {
 	}
 	c.mu.Unlock()
 	return profiles, nil
+}
+
+// listSettled: every profile is plainly running or stopped, not on its way between the two.
+func listSettled(ps []Profile, err error) bool {
+	if err != nil {
+		return false
+	}
+	for _, p := range ps {
+		if p.Status != "Running" && p.Status != "Stopped" {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) listNow(ctx context.Context) ([]Profile, error) {
@@ -208,7 +313,8 @@ func (c *Client) Status(ctx context.Context, profile string) (*Status, error) {
 		c.status[profile] = sc
 	}
 	c.cmu.Unlock()
-	return sc.get(listTTL, &c.cmu, &c.gen, func() (*Status, error) { return c.statusNow(ctx, profile) })
+	return sc.getStamped(c.stamp(), func(st *Status, err error) bool { return err == nil }, listTTL, &c.cmu, &c.gen,
+		func() (*Status, error) { return c.statusNow(ctx, profile) })
 }
 
 func (c *Client) statusNow(ctx context.Context, profile string) (*Status, error) {
@@ -225,7 +331,8 @@ func (c *Client) statusNow(ctx context.Context, profile string) (*Status, error)
 
 // Version returns the colima version string, e.g. "0.10.3".
 func (c *Client) Version(ctx context.Context) (string, error) {
-	return c.version.get(versionTTL, &c.cmu, &c.gen, func() (string, error) { return c.versionNow(ctx) })
+	return c.version.getStamped(c.binStamp(), func(_ string, err error) bool { return err == nil }, versionTTL, &c.cmu, &c.gen,
+		func() (string, error) { return c.versionNow(ctx) })
 }
 
 func (c *Client) versionNow(ctx context.Context) (string, error) {

@@ -168,6 +168,7 @@ func serve(port int, browser, newToken bool) error {
 		exe = real
 	}
 	col := colima.New(bin)
+	col.Home = colimaHome()
 	upd := &update.Updater{
 		Current: version, Exe: exe, ColimaBin: bin,
 		SettingsPath:  filepath.Join(filepath.Dir(tokenPath()), "settings.json"),

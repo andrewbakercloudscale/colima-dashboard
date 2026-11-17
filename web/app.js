@@ -1821,7 +1821,7 @@ async function boot() {
   setInterval(() => { if (!document.hidden) refreshOverview(); }, 10000);
   // The Diagnostics count in the sidebar, like Rancher Desktop's.
   refreshDiagBadge();
-  setInterval(() => { if (!document.hidden) refreshDiagBadge(); }, 5 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) refreshDiagBadge(); }, 30 * 60 * 1000); // its checks run docker on the Mac
   // Re-attach to a job still running from before a reload.
   const running = (state.overview?.jobs || []).filter((j) => !j.done).sort((a, b) => a.started < b.started ? 1 : -1)[0];
   if (running) followJob(running, () => render());

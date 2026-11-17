@@ -3,8 +3,12 @@ package colima
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 type rec struct {
@@ -145,5 +149,56 @@ network:
 		if _, err := (StartOptions{KubernetesVersion: bad}).Args(); err == nil {
 			t.Errorf("accepted version %q", bad)
 		}
+	}
+}
+
+// An idle dashboard must not run colima: a settled list is kept while colima's files look the
+// same, and fetched again when a VM starts or stops or an action runs.
+func TestListKeptUntilFilesChange(t *testing.T) {
+	home := t.TempDir()
+	inst := filepath.Join(home, "_lima", "colima")
+	if err := os.MkdirAll(inst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &rec{out: `{"name":"default","status":"Running"}` + "\n"}
+	c := New("colima")
+	c.Runner, c.Home = r, home
+	list := func() {
+		c.cmu.Lock()
+		c.list.at = c.list.at.Add(-time.Minute) // past the short TTL
+		c.cmu.Unlock()
+		if _, err := c.List(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list()
+	list()
+	list()
+	if len(r.runs) != 1 {
+		t.Fatalf("idle: colima ran %d times, want 1", len(r.runs))
+	}
+	// A VM starts: its host agent writes ha.pid.
+	if err := os.WriteFile(filepath.Join(inst, "ha.pid"), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list()
+	if len(r.runs) != 2 {
+		t.Fatalf("after start: colima ran %d times, want 2", len(r.runs))
+	}
+	c.Forget()
+	list()
+	if len(r.runs) != 3 {
+		t.Fatalf("after Forget: colima ran %d times, want 3", len(r.runs))
+	}
+	// A profile on its way up is asked again after the short TTL even with the files unchanged.
+	r.out = `{"name":"default","status":"Starting"}` + "\n"
+	c.Forget()
+	list()
+	list()
+	if len(r.runs) != 5 {
+		t.Fatalf("starting: colima ran %d times, want 5", len(r.runs))
 	}
 }

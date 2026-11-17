@@ -591,6 +591,27 @@ type DiskTotal struct {
 	Reclaimable int64  `json:"reclaimable"`
 }
 
+// BuildCacheStamp summarises BuildKit's cache (records, uses, last use). Any build, even a
+// failed one, changes it, so it shows whether builds need reading again.
+func (c *Client) BuildCacheStamp(ctx context.Context) (string, error) {
+	var du struct {
+		BuildCache []struct {
+			ID         string `json:"ID"`
+			UsageCount int    `json:"UsageCount"`
+			LastUsedAt string `json:"LastUsedAt"`
+		} `json:"BuildCache"`
+	}
+	if err := c.getJSON(ctx, "/system/df", url.Values{"type": {"build-cache"}}, &du); err != nil {
+		return "", err
+	}
+	uses, last := 0, ""
+	for _, b := range du.BuildCache {
+		uses += b.UsageCount
+		last = max(last, b.LastUsedAt)
+	}
+	return fmt.Sprintf("%d|%d|%s", len(du.BuildCache), uses, last), nil
+}
+
 // DiskUsage returns /system/df with the totals the CLI shows filled in.
 func (c *Client) DiskUsage(ctx context.Context) (*DiskUsage, error) {
 	var du DiskUsage
