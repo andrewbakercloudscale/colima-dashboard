@@ -2,7 +2,7 @@
 //   node docs/blog/post.js            write docs/blog/post.html only
 //   node docs/blog/post.js --upload   also upload images and create or update the draft
 // Numbers come from docs/blog/numbers.json; a missing number prints as "measuring".
-// It never publishes: status is always "draft".
+// It saves a draft unless --publish is given, which the owner asks for each time.
 const fs = require('fs');
 const path = require('path');
 
@@ -81,49 +81,76 @@ p('One honest caveat: this is my working Mac, with other work running in the bac
 hr();
 
 h2('4. The Numbers');
+p('Colima wins on everything that comes from being small: starting, stopping, sitting idle and taking up disk. On the work itself, builds and file access, the two are close enough that the background noise on my Mac decides it. Here is the full table, every figure a median of five runs or a ten minute idle average.');
 table(['Measure', 'Rancher Desktop', 'Colima'], [
-  ['Download', n('rd_download_mb', ' MB'), n('co_download_mb', ' MB')],
-  ['Installed size', n('rd_app_gb', ' GB'), n('co_installed_mb', ' MB')],
-  ['First start (out of the box)', n('rd_first_start_s', ' s'), n('co_first_start_s', ' s')],
-  ['Cold start (out of the box)', n('rd_cold_defaults_s', ' s'), n('co_cold_defaults_s', ' s')],
-  ['Cold start (matched)', n('rd_cold_matched_s', ' s'), n('co_cold_matched_s', ' s')],
-  ['Stop', n('rd_stop_s', ' s'), n('co_stop_s', ' s')],
-  ['Idle memory (matched)', n('rd_idle_mem_matched_gb', ' GB'), n('co_idle_mem_matched_gb', ' GB')],
-  ['Idle CPU (matched)', n('rd_idle_cpu_matched', '%'), n('co_idle_cpu_matched', '%')],
+  ['Installed size', `${n('rd_app_gb', ' GB')} app (${n('rd_download_mb', ' MB')} download)`, `${n('co_installed_mb', ' MB')} (Colima, Lima, Docker CLI)`],
+  ['First ever start, out of the box', n('rd_first_start_s', ' s') + ' (Kubernetes on)', n('co_first_start_s', ' s')],
+  ['Cold start, out of the box', n('rd_cold_defaults_s', ' s'), n('co_cold_defaults_s', ' s')],
+  ['Cold start, matched VMs', n('rd_cold_matched_s', ' s'), n('co_cold_matched_s', ' s')],
+  ['Cold start to Kubernetes ready', n('rd_cold_k8s_s', ' s'), n('co_cold_k8s_s', ' s')],
+  ['Stop, matched VMs', n('rd_stop_s', ' s'), n('co_stop_s', ' s')],
+  ['Stop, with Kubernetes', n('rd_stop_k8s_s', ' s'), n('co_stop_k8s_s', ' s')],
+  ['<code>docker run hello-world</code>, warm', n('rd_hello_s', ' s'), n('co_hello_s', ' s')],
+  ['Idle memory, matched VMs', n('rd_idle_mem_matched_gb', ' GB'), n('co_idle_mem_matched_gb', ' GB')],
+  ['Idle memory, with Kubernetes', n('rd_idle_mem_k8s_gb', ' GB'), n('co_idle_mem_k8s_gb', ' GB')],
+  ['Idle CPU, matched VMs (one core = 100%)', n('rd_idle_cpu_matched', '%'), n('co_idle_cpu_matched', '%')],
+  ['Idle CPU, with Kubernetes', n('rd_idle_cpu_k8s', '%'), n('co_idle_cpu_k8s', '%')],
   ['Image build, cold cache', n('rd_build_cold_s', ' s'), n('co_build_cold_s', ' s')],
-  ['Bind mount file work', n('rd_io_bind_s', ' s'), n('co_io_bind_s', ' s')],
-  ['Left behind after uninstall', '59 GB plus shell profile edits', n('co_leftovers', '')],
+  ['Bind mount file work (create, read, tar, delete)', n('rd_io_bind_s', ' s'), n('co_io_bind_s', ' s')],
+  ['Left behind after uninstall', n('rd_leftovers'), '<code>~/.colima</code>, removed by <code>colima delete</code>'],
 ]);
 img('chart-start.png', 'Cold start and stop times, median of 5 runs');
 img('chart-idle.png', 'Memory and CPU used while idle, 10 minute average');
-p(N.verdict || '<em>The verdict goes here once the Colima runs finish this afternoon.</em>');
+p('A few things stand out.');
+ul([
+  '<strong>Stopping is where the gap is widest.</strong> Rancher Desktop took 35 seconds to stop every single time, and 44 with Kubernetes. Colima took under 3. If you stop your VM at the end of the day, or to get battery back, you feel this every time.',
+  '<strong>Kubernetes is expensive at idle in both, but much more so in Rancher Desktop.</strong> With nothing deployed, Rancher Desktop\'s k3s used 38% of a core and 5.4 GB on my Mac, all day. Colima\'s used 13% and 2.1 GB. Without Kubernetes, both are close to free.',
+  '<strong>Builds and file access are a draw.</strong> Both run Docker in a Linux VM on Apple\'s Virtualization framework with virtiofs mounts, so the work inside runs at the same speed. One Rancher set of runs came out twice as slow, but my Mac was busy at the time (load average 14), so I have not counted it; the runs at similar load were within a few percent.',
+  '<strong>The first start is the outlier.</strong> A fresh Rancher Desktop took over three minutes before <code>hello-world</code> worked, because it downloads and starts Kubernetes first. Colima took 40 seconds.',
+]);
+p('<strong>Verdict:</strong> for a developer on a Mac who wants Docker, and sometimes Kubernetes, Colima does the same work in about half the memory, starts twice as fast, stops ten times faster and leaves almost nothing behind. What it lacked was a window. That is the part I built.');
 hr();
 
 h2('5. What You Lose When You Leave Rancher Desktop');
-p('Switching is mostly painless, but Rancher Desktop quietly did a few jobs that you only notice when they stop happening. These are the ones that bit me:');
+p('Switching is mostly painless, but Rancher Desktop quietly did a few jobs that you only notice when they stop happening. I uninstalled it again while writing this, and every one of these happened:');
 ul([
-  '<strong>Image pulls fail with a confusing error.</strong> Rancher Desktop sets <code>"credsStore": "osxkeychain"</code> in <code>~/.docker/config.json</code> and ships the helper that goes with it. Remove the app and the setting stays while the helper goes, so every pull fails. The fix is <code>brew install docker-credential-helper</code>.',
-  '<strong>No buildx, no compose.</strong> Rancher Desktop bundles both Docker plugins. Colima does not, so <code>docker buildx</code> and <code>docker compose</code> vanish until you install them from Homebrew and tell Docker where they live.',
-  '<strong>Your PATH still points at Rancher.</strong> The <code>~/.rd/bin</code> lines stay in your shell profiles, so for a while you run Rancher\'s leftover <code>docker</code> instead of the one you just installed.',
-  '<strong>No window.</strong> No list of containers, images, volumes or forwarded ports; no Kubernetes switch; no logs a click away; nothing that tells you what is wrong. Colima can do all of it, but only if you know the commands.',
+  '<strong>Docker stops working.</strong> Uninstalling removes <code>/var/run/docker.sock</code>, and Docker\'s current context can be left pointing at it. Every command fails until you run <code>docker context use colima</code>.',
+  '<strong>kubectl, helm and buildx disappear.</strong> They lived in <code>~/.rd/bin</code>, which the uninstall empties. Install them from Homebrew.',
+  '<strong>Image pulls fail with a confusing error.</strong> Rancher Desktop sets <code>"credsStore": "osxkeychain"</code> in <code>~/.docker/config.json</code> and ships the helper that goes with it. Remove the app and the setting can stay while the helper goes. The fix is <code>brew install docker-credential-helper</code>.',
+  '<strong>Pulls fail behind a company proxy.</strong> Rancher Desktop copies your Mac\'s certificate authorities into its VM. Colima does not, so behind Zscaler or similar every pull fails with <code>x509: certificate signed by unknown authority</code>.',
+  '<strong>Your PATH still points at Rancher.</strong> The <code>~/.rd/bin</code> lines stay in your shell profiles; on my Mac, three of them.',
+  '<strong>Gigabytes stay on disk.</strong> One day of testing left 4.9 GB in <code>~/Library</code>. Months of real use had left 59 GB.',
+  '<strong>No window.</strong> No list of containers, images or volumes, no Kubernetes switch, no logs a click away, nothing that tells you what is wrong.',
 ]);
 hr();
 
 h2('6. Colima Dashboard: Filling the Gaps');
-p('Colima Dashboard is a small local web app for Colima. It is one Go binary of about 11 MB with the page built in, it listens only on your own Mac (127.0.0.1), and it talks to Colima through its normal command line and to Docker through Colima\'s socket. There is no Electron, no Node and nothing else to install.');
-img('general.png', 'General: the profile, its state, and updates for Colima and the dashboard');
+p('Colima Dashboard is a small local web app for Colima. It is one Go binary with the page built in, it listens only on your own Mac, and it talks to Colima through its normal command line and to Docker through Colima\'s socket. There is no Electron and no Node. I went through Rancher Desktop page by page and setting by setting and copied every feature a Mac developer would miss, then added the things I always wanted from it.');
+img('general.png', 'General: the profile, its state, what needs fixing, and updates');
+h3('Everything Rancher Desktop had');
 ul([
-  '<strong>General:</strong> start, stop and restart with a progress view instead of a wall of log lines, and what is using the VM\'s disk.',
-  '<strong>Monitor:</strong> live CPU and memory graphs for the VM and for each container.',
-  '<strong>Containers, Images, Volumes, Port Forwarding:</strong> the everyday lists, with start, stop, remove and logs, and Compose projects grouped together.',
-  '<strong>Kubernetes:</strong> k3s on or off, its services, and a reset button.',
-  '<strong>Preferences:</strong> CPUs, memory, disk, runtime, VM type, mounts, Rosetta and new profiles.',
-  '<strong>Troubleshooting and Diagnostics:</strong> colour coded logs, and checks for every problem in section 5, each with a button that fixes it.',
+  '<strong>Containers, Images, Volumes, Port Forwarding:</strong> the everyday lists, with start, stop, logs, inspect and remove, Compose projects grouped together.',
+  '<strong>A shell and a file browser</strong> for any running container, in the page. Volumes can be browsed too, even when no container uses them.',
+  '<strong>Live stats</strong> per container: CPU, memory, network and disk I/O, and its processes.',
+  '<strong>Images:</strong> pull, build from a folder on your Mac, push, and scan with Trivy.',
+  '<strong>Kubernetes:</strong> on or off, a k3s version picker, Traefik on or off, workloads with their logs, and reset.',
+  '<strong>Snapshots:</strong> save a stopped profile and roll back to it. They are APFS clones, so saving takes a second and uses almost no disk.',
+  '<strong>A menu bar icon</strong> with each profile\'s state and start and stop, and notifications.',
+  '<strong>Preferences:</strong> CPUs, memory, disk, runtime, VM type, mounts, Rosetta, profiles, start at login and a dark theme.',
+]);
+img('shell.png', 'A shell into a running container, in the browser');
+img('kubernetes.png', 'Kubernetes: version, Traefik, workloads and reset');
+h3('Things Rancher Desktop never had');
+ul([
+  '<strong>Diagnostics with a fix button for every problem in section 5.</strong> Press it and Terminal opens running the exact command, so you see what it does. Anything that deletes or edits a file asks first and keeps a backup. The company proxy one copies your Mac\'s certificates into the VM in one click.',
+  '<strong>Runs and tests:</strong> every container that ran, how long it took and how it ended, with pass rates and the tests that are getting slower or flaky.',
+  '<strong>Builds:</strong> build times, cache hit rates and why a build failed, over 30 days.',
+  '<strong>Monitor:</strong> live graphs for the VM and each container, plus 30 days of history and a forecast of when the disk fills up.',
+  '<strong>Alerts:</strong> a macOS notification when a test container or a build fails, or something runs out of memory.',
 ]);
 img('diagnostics.png', 'Diagnostics: each problem found, with its fix one click away');
-p('That last point matters most to me. Every fix is a button. Press it and Terminal opens running the exact command, so you see what it does, can answer any prompt, and keep the output. Anything that deletes or edits a file asks first and keeps a backup. The page never sends a command to run; it names the check, and the dashboard works out the fix itself.');
-img('logs.png', 'Colima\'s VM logs, colour coded');
-p('It also keeps itself current. It checks GitHub for new releases of itself and of Colima, updates itself automatically if you let it (checking the download\'s checksum first), and updates Colima through Homebrew with one click.');
+img('monitor.png', 'Monitor: what the VM costs your Mac, live and over 30 days');
+p('It also keeps itself current: it checks GitHub for new releases of itself and of Colima, updates itself if you let it (checking the checksum first), and updates Colima through Homebrew with one click.');
 hr();
 
 h2('7. Moving Over: the Short Checklist');
@@ -135,11 +162,11 @@ code([
   '',
   '# 2. Remove what it leaves behind (check the size first: mine was 59 GB)',
   'du -sh ~/Library/Application\\ Support/rancher-desktop',
-  'rm -rf ~/Library/Application\\ Support/rancher-desktop',
-  'sed -i \'.bak\' \'/\\.rd\\/bin/d\' ~/.zshrc ~/.bash_profile',
+  'rm -rf ~/Library/Application\\ Support/rancher-desktop ~/Library/Caches/rancher-desktop',
+  'sed -i \'.bak\' \'/\\.rd\\/bin/d\' ~/.zshrc ~/.bash_profile ~/.bashrc',
   '',
-  '# 3. Install Colima and the Docker tools Rancher used to bundle',
-  'brew install colima docker docker-compose docker-buildx docker-credential-helper',
+  '# 3. Install Colima and the tools Rancher used to bundle',
+  'brew install colima docker docker-compose docker-buildx docker-credential-helper kubectl',
   '',
   '# 4. Start it and point Docker at it',
   'colima start',
@@ -149,7 +176,7 @@ code([
 hr();
 
 h2('8. When Rancher Desktop Is Still the Right Choice');
-p('Colima is not for everyone, and I would not move a whole team over without checking these first. Stay on Rancher Desktop if you need Windows or Linux as well as macOS, a picker for exact Kubernetes versions, Rancher\'s extensions or snapshots, or settings that your IT team locks down centrally. For one developer on a Mac who wants Docker and the occasional Kubernetes cluster, Colima with a small dashboard on top is the better trade.');
+p('Colima is not for everyone, and I would not move a whole team over without checking these first. Stay on Rancher Desktop if you need Windows or Linux as well as macOS, Docker Desktop style extensions, or settings that your IT team locks down centrally. For one developer on a Mac who wants Docker and the occasional Kubernetes cluster, Colima with a small dashboard on top is the better trade.');
 hr();
 
 h2('9. Getting It');
@@ -164,9 +191,7 @@ async function upload() {
   const { client } = require(path.join(ROOT, 'bench/tmp/wp/wp.js'));
   const { ctx, call } = await client();
   const images = {
-    'general.png': path.join(ROOT, 'docs/screenshots/general.png'),
-    'diagnostics.png': path.join(ROOT, 'docs/screenshots/diagnostics.png'),
-    'logs.png': path.join(ROOT, 'docs/screenshots/logs.png'),
+    ...Object.fromEntries(['general', 'diagnostics', 'monitor', 'shell', 'kubernetes'].map((k) => [`${k}.png`, path.join(__dirname, 'shots', `${k}.png`)])),
     'chart-start.png': path.join(__dirname, 'chart-start.png'),
     'chart-idle.png': path.join(__dirname, 'chart-idle.png'),
   };
@@ -191,14 +216,15 @@ async function upload() {
   }
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2));
   if (changed) return 'rerun'; // image blocks need the new ids: build again, then save
-  const body = { title: TITLE, content: fs.readFileSync(path.join(__dirname, 'post.html'), 'utf8'), status: 'draft', author: 2, categories: [17, 15] };
+  const body = { title: TITLE, content: fs.readFileSync(path.join(__dirname, 'post.html'), 'utf8'), status: process.argv.includes('--publish') ? 'publish' : 'draft', author: 2, categories: [17, 15] };
   const post = state.postId
     ? await call('POST', `/wp/v2/posts/${state.postId}`, { data: body })
     : await call('POST', '/wp/v2/posts', { data: body });
-  if (post.status !== 'draft') throw new Error('post is ' + post.status + ', expected draft');
+  const want = process.argv.includes('--publish') ? 'publish' : 'draft';
+  if (post.status !== want) throw new Error('post is ' + post.status + ', expected ' + want);
   state.postId = post.id;
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2));
-  console.log('draft', post.id, post.link);
+  console.log(post.status, post.id, post.link);
   await ctx.dispose();
   return 'done';
 }
@@ -206,7 +232,7 @@ async function upload() {
 if (process.argv.includes('--upload')) {
   upload().then((r) => {
     if (r === 'rerun') {
-      require('child_process').execFileSync(process.execPath, [__filename, '--upload'], { stdio: 'inherit' });
+      require('child_process').execFileSync(process.execPath, [__filename, ...process.argv.slice(2)], { stdio: 'inherit' });
     }
   }).catch((e) => { console.error(e.message); process.exit(1); });
 }
