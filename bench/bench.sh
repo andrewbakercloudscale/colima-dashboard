@@ -192,7 +192,22 @@ function ensure_running() {
             return 1
         }
     fi
+    snapshot_settings "${tool}" "${config}"
     return 0
+}
+
+# Saves the settings the tool is really running with: a "defaults" run once picked up settings
+# left behind by an earlier install, and only the live settings showed it.
+function snapshot_settings() {
+    local tool="$1" config="$2" out
+    mkdir -p "${RESULTS_DIR}/raw" || return 1
+    out="${RESULTS_DIR}/raw/settings-${tool}-${config}-$(date +%Y%m%d-%H%M%S).json"
+    case "${tool}" in
+    rancher) "${RDCTL}" list-settings >"${out}" 2>/dev/null ;;
+    colima) colima status -p "${COLIMA_PROFILE}" --json >"${out}" 2>/dev/null ;;
+    *) return 0 ;;
+    esac
+    log_info "${tool}: live settings saved to ${out#"${BENCH_DIR}"/}"
 }
 
 # Rancher keeps its settings between starts; compare the live ones to what the config asks for.
