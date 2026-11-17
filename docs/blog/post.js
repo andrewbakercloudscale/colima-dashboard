@@ -27,7 +27,9 @@ const hr = () => blocks.push('<!-- wp:separator -->\n<hr class="wp-block-separat
 const table = (head, rows) => blocks.push(`<!-- wp:table -->\n<figure class="wp-block-table"><table class="has-fixed-layout"><thead><tr>${
   head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
   rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></figure>\n<!-- /wp:table -->`);
+const used = new Set(); // every image the post uses, so --upload sends exactly these
 const img = (file, caption) => {
+  used.add(file);
   const m = state.media[file];
   if (!m) { blocks.push(`<!-- wp:paragraph -->\n<p><em>[image: ${esc(file)}: ${esc(caption)}]</em></p>\n<!-- /wp:paragraph -->`); return; }
   blocks.push(`<!-- wp:image {"id":${m.id},"sizeSlug":"large","linkDestination":"media"} -->\n<figure class="wp-block-image size-large"><a href="${m.url}"><img src="${m.large || m.url}" class="wp-image-${m.id}" alt="${esc(caption)}"/></a><figcaption class="wp-element-caption">${esc(caption)}</figcaption></figure>\n<!-- /wp:image -->`);
@@ -42,7 +44,7 @@ const INSTALL = 'curl -fsSL https://raw.githubusercontent.com/andrewbakercloudsc
 const TITLE = 'Colima vs Rancher Desktop on a MacBook: Measured, and the Gaps Filled';
 
 p(`I ran Rancher Desktop on my MacBook for a long time, and it did the job: Docker, Kubernetes and a window with buttons. Then I looked at what it was costing me. A 1.5 GB app, a Kubernetes cluster I never asked for starting every morning, a stop button that takes over half a minute, and, when I finally went looking, <strong>59 GB</strong> of old virtual machine disks sitting in my Library folder. So I replaced it with <a href="https://github.com/abiosoft/colima">Colima</a>, which is free, open source and far lighter.`);
-p(`Colima has one real weakness: it is command line only. There is no window, no list of containers, no button for the things that go wrong. So I built one, <a href="${REPO}">Colima Dashboard</a>, and then measured both setups properly on the same Mac rather than trusting anyone's opinion, including mine. This post has the numbers, the gaps you fall into when you switch, and the tool that fills them.`);
+p(`Colima has one real weakness: it is command line only. There is no window, no list of containers, no button for the things that go wrong. So I built one, <a href="${REPO}">Colima Dashboard</a>, and then measured both setups properly on the same Mac rather than trusting anyone's opinion, including mine. This post starts with a quick tour of the dashboard, then the numbers, the gaps you fall into when you switch, and how the dashboard fills them.`);
 hr();
 
 h2('1. Install It in One Paste');
@@ -51,7 +53,53 @@ code(INSTALL);
 p(`Then press <strong>Start</strong> on the General page. The first start downloads a small Linux image and takes a minute or two; after that it is quick. Everything is on <a href="${REPO}">GitHub</a> under the Apache 2.0 licence.`);
 hr();
 
-h2('2. Why I Moved Off Rancher Desktop');
+h2('2. A Quick Tour: Your First Ten Minutes');
+p('Before the numbers, here is what you actually get. Every screenshot below is the dashboard running on my Mac against a small demo shop: a web server, an API, Redis, MariaDB and a busy background worker in one Compose project, with three test suites, a load test and image builds running on a loop. Nothing is mocked up.');
+
+h3('Step 1: Start Colima from the General page');
+p('The first page shows your profile as a card: its state, CPUs, memory, disk, runtime and VM type, with Start, Stop and Restart. Underneath sits a short list of things to fix, and any updates for Colima or the dashboard. Press <strong>Start</strong> and the card goes green in about 11 seconds.');
+img('general.png', 'General: the profile at a glance, what needs fixing, and updates');
+
+h3('Step 2: Run your stack and see it in Containers');
+p('Run <code>docker compose up</code> as usual. Containers groups each Compose project together, shows ports as clickable links, and gives every container Start, Stop, Restart, Logs, Inspect, Shell, Files and Remove. The search box filters as you type.');
+img('containers.png', 'Containers: Compose projects grouped, ports one click away');
+
+h3('Step 3: Watch what the VM is doing on Monitor');
+p('This is the page I open most. The top band answers "is my VM busy?" in one glance: CPU and memory gauges with plain English verdicts, averages over 1 minute, 15 minutes and an hour, what the VM costs your actual Mac in cores and gigabytes, network and disk rates, and how many containers are running.');
+img('monitor-hero.png', 'Monitor: CPU and memory gauges, 1, 15 and 60 minute averages, and what it costs your Mac');
+p('Below it, every graph splits the load by container, so the noisy one is obvious. The donut is right now; the stacked charts are the last 5 minutes to an hour. Test runs started with <code>docker compose run</code> are folded into their service rather than cluttering the legend with a new name per run. Hover any chart for exact values.');
+img('monitor-containers.png', 'Who is using the CPU and memory: right now, and over the last 15 minutes, by container');
+img('monitor-io.png', 'Network, disk I/O, and the Mac CPU and memory the VM really uses, as Activity Monitor counts it');
+
+h3('Step 4: Drill into one container');
+p('Inspect on any container opens a drawer with live sparklines for CPU, memory, network and disk, updated every 2 seconds, plus its running processes, its full configuration and its environment.');
+img('live.png', 'Inspect: live stats and processes for one container');
+p('<strong>Shell</strong> opens a real terminal inside the container, in the page, with colours and resizing. <strong>Files</strong> browses its file system: open a text file to read it, or download a file or a whole folder as a tar. Volumes can be browsed the same way, even when no container is using them.');
+img('shell.png', 'A shell into a running container, in the browser');
+img('files.png', 'Files: browse, read and download from inside a container');
+
+h3('Step 5: See how your tests are doing');
+p('Every container that runs and exits is recorded, so test suites run in containers get a history for free, with nothing to install in your project. Runs and tests shows the pass rate, median and slowest 10% for each service, a trend bar per run, and flags for <strong>flaky</strong> tests (passing and failing on the same code), tests getting <strong>slower</strong>, and anything killed for running <strong>out of memory</strong>. In the demo, the integration suite fails about one run in four and is flagged flaky; the load test hits its 24 MB limit and is flagged out of memory.');
+img('runs.png', 'Runs and tests: pass rates, timings, trends and flaky, slower and out of memory flags');
+
+h3('Step 6: Keep an eye on your builds');
+p('Builds reads BuildKit\'s own history: every image build, how long it took, how many steps came from cache, and, when one fails, the step and the error, without digging through terminal scrollback. Each image gets a trend, and a build that has become noticeably slower than its usual is flagged.');
+img('builds.png', 'Builds: time, cache hits, trend and the exact error for a failed build');
+
+h3('Step 7: Look back over days, not minutes');
+p('Monitor also keeps 30 days of history on your Mac: the Mac CPU and memory the VM used, its disk on your Mac, Docker\'s disk use and the number of running containers, and, once it has a day of history, a forecast of when the VM disk fills up. Switch between 1 day, 7 days and 30 days at the top. It samples every 5 minutes while the dashboard runs, with the page open or not, and nothing leaves your Mac.');
+
+h3('Step 8: When something goes wrong, press Fix');
+p('Diagnostics runs 14 checks, from the Docker context and the credential helper to stale Rancher Desktop files and company proxy certificates. Each problem has a Fix button that opens Terminal with the exact command, so you can see what it does before it runs. The sidebar badge counts open problems, and failing tests, builds and out of memory kills also arrive as macOS notifications and in the optional menu bar icon.');
+img('diagnostics.png', 'Diagnostics: each problem found, with its fix one click away');
+
+h3('Step 9: Kubernetes and snapshots, when you need them');
+p('Kubernetes is off until you want it. Then one switch turns on k3s, a picker chooses the version, and the page lists your workloads with their logs. Snapshots save a stopped profile in about a second as an APFS clone, so you can try something risky and roll back.');
+img('kubernetes.png', 'Kubernetes: version, Traefik, workloads and reset');
+img('snapshots-bench.png', 'Snapshots: save and restore a whole profile in seconds');
+hr();
+
+h2('3. Why I Moved Off Rancher Desktop');
 p('None of these is a bug. Each is a reasonable choice for a product that tries to be everything for everyone. Together they add up to a lot of machine for someone who mostly runs <code>docker compose up</code>.');
 ul([
   `<strong>Size.</strong> The download is ${n('rd_download_mb', ' MB')} and the app is ${n('rd_app_gb', ' GB')} on disk, before it creates a single virtual machine. It bundles its own copies of Lima, the Docker CLI, kubectl, helm, nerdctl and more.`,
@@ -62,7 +110,7 @@ ul([
 ]);
 hr();
 
-h2('3. How I Measured');
+h2('4. How I Measured');
 p(`Same Mac, same day, one tool running at a time with the other fully stopped. The scripts and every raw CSV are in the repo under <a href="${REPO}/tree/main/bench"><code>bench/</code></a>, so you can run them on your own machine.`);
 table(['', ''], [
   ['Mac', 'MacBook with Apple M5, 10 cores, 32 GB, macOS 27.2'],
@@ -80,7 +128,7 @@ ul([
 p('One honest caveat: this is my working Mac, with other work running in the background. I recorded the load average with every sample and reran anything that looked disturbed, but the numbers are real world rather than laboratory.');
 hr();
 
-h2('4. The Numbers');
+h2('5. The Numbers');
 p('Colima wins on everything that comes from being small: starting, stopping, sitting idle and taking up disk. On the work itself, builds and file access, the two are close enough that the background noise on my Mac decides it. Here is the full table, every figure a median of five runs or a ten minute idle average.');
 table(['Measure', 'Rancher Desktop', 'Colima'], [
   ['Installed size', `${n('rd_app_gb', ' GB')} app (${n('rd_download_mb', ' MB')} download)`, `${n('co_installed_mb', ' MB')} (Colima, Lima, Docker CLI)`],
@@ -111,7 +159,7 @@ ul([
 p('<strong>Verdict:</strong> for a developer on a Mac who wants Docker, and sometimes Kubernetes, Colima does the same work in about half the memory, starts twice as fast, stops ten times faster and leaves almost nothing behind. What it lacked was a window. That is the part I built.');
 hr();
 
-h2('5. What You Lose When You Leave Rancher Desktop');
+h2('6. What You Lose When You Leave Rancher Desktop');
 p('Switching is mostly painless, but Rancher Desktop quietly did a few jobs that you only notice when they stop happening. I uninstalled it again while writing this, and every one of these happened:');
 ul([
   '<strong>Docker stops working.</strong> Uninstalling removes <code>/var/run/docker.sock</code>, and Docker\'s current context can be left pointing at it. Every command fails until you run <code>docker context use colima</code>.',
@@ -124,9 +172,8 @@ ul([
 ]);
 hr();
 
-h2('6. Colima Dashboard: Filling the Gaps');
-p('Colima Dashboard is a small local web app for Colima. It is one Go binary with the page built in, it listens only on your own Mac, and it talks to Colima through its normal command line and to Docker through Colima\'s socket. There is no Electron and no Node. I went through Rancher Desktop page by page and setting by setting and copied every feature a Mac developer would miss, then added the things I always wanted from it.');
-img('general.png', 'General: the profile, its state, what needs fixing, and updates');
+h2('7. Colima Dashboard: Filling the Gaps');
+p('Colima Dashboard is a small local web app for Colima. It is one Go binary with the page built in, it listens only on your own Mac, and it talks to Colima through its normal command line and to Docker through Colima\'s socket. There is no Electron and no Node. I went through Rancher Desktop page by page and setting by setting and copied every feature a Mac developer would miss, then added the things I always wanted from it. The tour in section 2 shows each page; this is the full list.');
 h3('Everything Rancher Desktop had');
 ul([
   '<strong>Containers, Images, Volumes, Port Forwarding:</strong> the everyday lists, with start, stop, logs, inspect and remove, Compose projects grouped together.',
@@ -138,22 +185,18 @@ ul([
   '<strong>A menu bar icon</strong> with each profile\'s state and start and stop, and notifications.',
   '<strong>Preferences:</strong> CPUs, memory, disk, runtime, VM type, mounts, Rosetta, profiles, start at login and a dark theme.',
 ]);
-img('shell.png', 'A shell into a running container, in the browser');
-img('kubernetes.png', 'Kubernetes: version, Traefik, workloads and reset');
 h3('Things Rancher Desktop never had');
 ul([
-  '<strong>Diagnostics with a fix button for every problem in section 5.</strong> Press it and Terminal opens running the exact command, so you see what it does. Anything that deletes or edits a file asks first and keeps a backup. The company proxy one copies your Mac\'s certificates into the VM in one click.',
+  '<strong>Diagnostics with a fix button for every problem in section 6.</strong> Press it and Terminal opens running the exact command, so you see what it does. Anything that deletes or edits a file asks first and keeps a backup. The company proxy one copies your Mac\'s certificates into the VM in one click.',
   '<strong>Runs and tests:</strong> every container that ran, how long it took and how it ended, with pass rates and the tests that are getting slower or flaky.',
   '<strong>Builds:</strong> build times, cache hit rates and why a build failed, over 30 days.',
   '<strong>Monitor:</strong> live graphs for the VM and each container, plus 30 days of history and a forecast of when the disk fills up.',
   '<strong>Alerts:</strong> a macOS notification when a test container or a build fails, or something runs out of memory.',
 ]);
-img('diagnostics.png', 'Diagnostics: each problem found, with its fix one click away');
-img('monitor.png', 'Monitor: what the VM costs your Mac, live and over 30 days');
 p('It also keeps itself current: it checks GitHub for new releases of itself and of Colima, updates itself if you let it (checking the checksum first), and updates Colima through Homebrew with one click.');
 hr();
 
-h2('7. Moving Over: the Short Checklist');
+h2('8. Moving Over: the Short Checklist');
 p('If you would rather do it by hand, this is everything, in order. Colima Dashboard\'s Diagnostics page finds and fixes each of these for you.');
 code([
   '# 1. Quit and remove Rancher Desktop',
@@ -175,12 +218,12 @@ code([
 ].join('\n'));
 hr();
 
-h2('8. When Rancher Desktop Is Still the Right Choice');
+h2('9. When Rancher Desktop Is Still the Right Choice');
 p('Colima is not for everyone, and I would not move a whole team over without checking these first. Stay on Rancher Desktop if you need Windows or Linux as well as macOS, Docker Desktop style extensions, or settings that your IT team locks down centrally. For one developer on a Mac who wants Docker and the occasional Kubernetes cluster, Colima with a small dashboard on top is the better trade.');
 hr();
 
-h2('9. Getting It');
-p(`Colima Dashboard is free and open source under the Apache 2.0 licence: <a href="${REPO}">${REPO.replace('https://', '')}</a>. The one line install is in section 1, and the benchmark scripts are in the same repository. It is an independent project, not affiliated with Colima, Rancher Desktop or SUSE. If something does not work on your Mac, the dashboard has a Report a problem link on its first page.`);
+h2('10. Getting It');
+p(`Colima Dashboard is free and open source under the Apache 2.0 licence: <a href="${REPO}">${REPO.replace('https://', '')}</a>. The one line install is in section 1, the tour in section 2, and the benchmark scripts are in the same repository. It is an independent project, not affiliated with Colima, Rancher Desktop or SUSE. If something does not work on your Mac, the dashboard has a Report a problem link on its first page.`);
 
 const content = blocks.join('\n\n');
 fs.writeFileSync(path.join(__dirname, 'post.html'), content);
@@ -190,11 +233,8 @@ console.log(`post.html: ${blocks.length} blocks, ${content.length} chars`);
 async function upload() {
   const { client } = require(path.join(ROOT, 'bench/tmp/wp/wp.js'));
   const { ctx, call } = await client();
-  const images = {
-    ...Object.fromEntries(['general', 'diagnostics', 'monitor', 'shell', 'kubernetes'].map((k) => [`${k}.png`, path.join(__dirname, 'shots', `${k}.png`)])),
-    'chart-start.png': path.join(__dirname, 'chart-start.png'),
-    'chart-idle.png': path.join(__dirname, 'chart-idle.png'),
-  };
+  // charts live next to this file, screenshots in shots/
+  const images = Object.fromEntries([...used].map((f) => [f, fs.existsSync(path.join(__dirname, f)) ? path.join(__dirname, f) : path.join(__dirname, 'shots', f)]));
   let changed = false;
   for (const [name, file] of Object.entries(images)) {
     if (!fs.existsSync(file)) continue;

@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,8 +28,29 @@ import (
 
 const maxShells = 8
 
-// shellCmd starts bash when the image has it, else sh.
-var shellCmd = []string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi"}
+// shellRC sets up the shell like a login shell, then gives it colour: a green user@container
+// and blue folder in the prompt, and coloured ls and grep when the image's tools support it.
+// It is fed through a here-document, so nothing is written into the container.
+const shellRC = `[ -r /etc/profile ] && . /etc/profile >/dev/null 2>&1
+[ -n "$BASH_VERSION" ] && [ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc" >/dev/null 2>&1
+PS1='\[\033[1;32m\]\u@'"${CD_NAME:-\\h}"'\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$ '
+ls --color=auto -d / >/dev/null 2>&1 && alias ls='ls --color=auto'
+echo x | grep --color=auto x >/dev/null 2>&1 && alias grep='grep --color=auto'
+export LS_COLORS="${LS_COLORS:-di=1;34:ln=1;36:ex=1;32:*.tar=1;31:*.gz=1;31}"
+`
+
+// shellCmd starts bash when the image has it, else sh, with shellRC as its start-up file
+// ($ENV for sh). $1 is the container's name for the prompt.
+var shellCmd = []string{"/bin/sh", "-c", `export CD_NAME="$1"
+if command -v bash >/dev/null 2>&1; then exec bash --rcfile /dev/fd/3 -i 3<<'CDRC'
+` + shellRC + `CDRC
+fi
+ENV=/dev/fd/3 exec sh -i 3<<'CDRC'
+` + shellRC + `CDRC
+`, "sh"}
+
+// shellName is a container name safe to put in the prompt; anything else shows the hostname.
+var shellName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
 type shell struct {
 	id, execID string
@@ -75,7 +97,10 @@ func (s *Server) apiShellOpen(w http.ResponseWriter, r *http.Request) {
 	if dc == nil {
 		return
 	}
-	var req struct{ Cols, Rows int }
+	var req struct {
+		Cols, Rows int
+		Name       string
+	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -90,7 +115,11 @@ func (s *Server) apiShellOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	execID, err := dc.ExecCreate(ctx, r.PathValue("id"), shellCmd, true)
+	name := strings.TrimPrefix(req.Name, "/")
+	if !shellName.MatchString(name) {
+		name = ""
+	}
+	execID, err := dc.ExecCreate(ctx, r.PathValue("id"), append(append([]string{}, shellCmd...), name), true)
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return
@@ -206,7 +235,10 @@ func (s *Server) apiShellResize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("no such shell"))
 		return
 	}
-	var req struct{ Cols, Rows int }
+	var req struct {
+		Cols, Rows int
+		Name       string
+	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
