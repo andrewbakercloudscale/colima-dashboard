@@ -57,6 +57,11 @@ type Options struct {
 	Snapshots *snapshot.Store
 	// Alerts keeps recent alerts and the notification and menu bar settings; nil turns them off.
 	Alerts *alerts.Center
+	// LoginItem is the "Start at login" switch; nil hides it.
+	LoginItem interface {
+		Enabled() bool
+		SetEnabled(on bool) error
+	}
 	// MenuBarAvailable says whether this build includes the menu bar icon.
 	MenuBarAvailable bool
 	Logger           *log.Logger

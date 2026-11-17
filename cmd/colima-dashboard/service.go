@@ -25,12 +25,48 @@ func xmlEscape(s string) string {
 
 // installService writes a LaunchAgent that starts the UI at login (no browser) and loads it now.
 func installService(port int) error {
-	exe, err := os.Executable()
+	p, logPath, err := writePlist(port)
 	if err != nil {
 		return err
 	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+	domain := "gui/" + strconv.Itoa(os.Getuid())
+	_ = exec.Command("launchctl", "bootout", domain+"/"+serviceLabel).Run() // replace an older copy
+	if out, err := exec.Command("launchctl", "bootstrap", domain, p).CombinedOutput(); err != nil {
+		return fmt.Errorf("launchctl bootstrap: %v: %s", err, bytes.TrimSpace(out))
+	}
+	fmt.Printf("Installed %s\nColima Dashboard now starts at login on port %d. Open it with: colima-dashboard open\nLog: %s\n", p, port, logPath)
+	return nil
+}
+
+// loginItem is the page's "Start at login" switch. It only writes or removes the LaunchAgent
+// file, which launchd reads at the next login: loading or unloading it now could stop this very
+// process, or start a second copy on the same port.
+type loginItem struct{ port int }
+
+func (l loginItem) Enabled() bool {
+	_, err := os.Stat(plistPath())
+	return err == nil
+}
+
+func (l loginItem) SetEnabled(on bool) error {
+	if on {
+		_, _, err := writePlist(l.port)
 		return err
+	}
+	if err := os.Remove(plistPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// writePlist writes the LaunchAgent file for this binary and returns its path and log path.
+func writePlist(port int) (string, string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", "", err
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return "", "", err
 	}
 	home, _ := os.UserHomeDir()
 	logPath := filepath.Join(home, "Library", "Logs", "colima-dashboard.log")
@@ -55,18 +91,9 @@ func installService(port int) error {
 `
 	p := plistPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
+		return "", "", err
 	}
-	domain := "gui/" + strconv.Itoa(os.Getuid())
-	_ = exec.Command("launchctl", "bootout", domain+"/"+serviceLabel).Run() // replace an older copy
-	if err := os.WriteFile(p, []byte(plist), 0o644); err != nil {
-		return err
-	}
-	if out, err := exec.Command("launchctl", "bootstrap", domain, p).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v: %s", err, bytes.TrimSpace(out))
-	}
-	fmt.Printf("Installed %s\nColima Dashboard now starts at login on port %d. Open it with: colima-dashboard open\nLog: %s\n", p, port, logPath)
-	return nil
+	return p, logPath, os.WriteFile(p, []byte(plist), 0o644)
 }
 
 func uninstallService() error {

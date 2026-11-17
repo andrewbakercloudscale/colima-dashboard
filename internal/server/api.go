@@ -48,6 +48,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/k3s/versions", s.auth(s.apiK3sVersions))
 	m.HandleFunc("GET /api/alerts", s.auth(s.apiAlerts))
 	m.HandleFunc("POST /api/alerts/settings", s.auth(s.apiAlertSettings))
+	m.HandleFunc("GET /api/login-item", s.auth(s.apiLoginItem))
+	m.HandleFunc("POST /api/login-item", s.auth(s.apiSetLoginItem))
 	m.HandleFunc("POST /api/alerts/read", s.auth(s.apiAlertsRead))
 	m.HandleFunc("GET /api/menubar", s.auth(s.apiMenuBar))
 	m.HandleFunc("GET /api/profiles/{p}/snapshots", s.auth(s.apiSnapshots))
@@ -58,6 +60,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/profiles/{p}/containers", s.auth(s.apiContainers))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}", s.auth(s.apiInspect))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/stats", s.auth(s.apiStats))
+	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/top", s.auth(s.apiTop))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/logs", s.auth(s.apiLogs))
 	m.HandleFunc("POST /api/profiles/{p}/containers/{id}/{action}", s.auth(s.apiContainerAction))
 	m.HandleFunc("DELETE /api/profiles/{p}/containers/{id}", s.auth(s.apiRemoveContainer))
@@ -74,11 +77,17 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/profiles/{p}/images/pull", s.auth(s.apiPull))
 	m.HandleFunc("POST /api/profiles/{p}/images/prune", s.auth(s.apiPrune("images")))
 	m.HandleFunc("POST /api/profiles/{p}/images/scan", s.auth(s.apiScan))
+	m.HandleFunc("POST /api/profiles/{p}/images/build", s.auth(s.apiBuild))
+	m.HandleFunc("POST /api/profiles/{p}/images/push", s.auth(s.apiPush))
 	m.HandleFunc("DELETE /api/profiles/{p}/images/{id}", s.auth(s.apiRemoveImage))
 
+	m.HandleFunc("POST /api/profiles/{p}/certs", s.auth(s.apiCerts))
 	m.HandleFunc("GET /api/profiles/{p}/volumes", s.auth(s.apiVolumes))
 	m.HandleFunc("POST /api/profiles/{p}/volumes/prune", s.auth(s.apiPrune("volumes")))
 	m.HandleFunc("DELETE /api/profiles/{p}/volumes/{name}", s.auth(s.apiRemoveVolume))
+	m.HandleFunc("GET /api/profiles/{p}/volumes/{name}/files", s.auth(s.apiVolumeFiles))
+	m.HandleFunc("GET /api/profiles/{p}/volumes/{name}/file", s.auth(s.apiVolumeFile))
+	m.HandleFunc("GET /api/profiles/{p}/volumes/{name}/download", s.auth(s.apiVolumeDownload))
 }
 
 func (s *Server) apiOverview(w http.ResponseWriter, r *http.Request) {
@@ -269,6 +278,19 @@ func (s *Server) apiInspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) apiTop(w http.ResponseWriter, r *http.Request) {
+	dc := s.client(w, r)
+	if dc == nil {
+		return
+	}
+	t, err := dc.Top(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) apiStats(w http.ResponseWriter, r *http.Request) {

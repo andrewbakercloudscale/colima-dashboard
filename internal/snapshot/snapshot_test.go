@@ -47,7 +47,7 @@ func TestTakeRestoreDelete(t *testing.T) {
 	write(t, filepath.Join(home, "_lima", "colima-dev", "ha.stderr.log"), "noise")
 	ctx := context.Background()
 
-	sn, err := s.Take(ctx, io.Discard, "dev", "clean", false)
+	sn, err := s.Take(ctx, io.Discard, "dev", "clean", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestTakeRestoreDelete(t *testing.T) {
 	if err := s.Delete("dev", "../x"); err == nil {
 		t.Error("accepted a path as an id")
 	}
-	if _, err := s.Take(ctx, io.Discard, "missing", "x", false); err == nil {
+	if _, err := s.Take(ctx, io.Discard, "missing", "x", "", false); err == nil {
 		t.Error("snapshot of a profile without a VM")
 	}
 }

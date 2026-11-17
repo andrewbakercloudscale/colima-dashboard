@@ -129,15 +129,17 @@ function copyBtn(cmd) {
 // from the check id); start and restart use the page's own progress view.
 function fixRow(c) {
   if (!c.fix) return null;
-  const label = c.action === "start" ? `Start ${state.profile}` : c.action === "restart" ? `Restart ${state.profile}` : "Run in Terminal";
+  const label = c.action === "start" ? `Start ${state.profile}` : c.action === "restart" ? `Restart ${state.profile}` : c.action === "certs" ? "Copy certificates" : "Run in Terminal";
   const run = el(c.confirm ? "button.danger.mini" : "button.mini", { type: "button" }, label);
   run.addEventListener("click", async () => {
     if (c.confirm && !await confirmBox(`${c.title}: fix it?`,
-      el("div", el("p", c.confirm), el("p.muted.small", "Runs in Terminal: "), el("pre.log", c.fix)), "Run it", true)) return;
+      el("div", el("p", c.confirm), c.action === "certs" ? null : el("p.muted.small", "Runs in Terminal: "), c.action === "certs" ? null : el("pre.log", c.fix)), "Run it", true)) return;
     if (c.action === "start") return startProfile();
     if (c.action === "restart") return runJob("POST", `${P()}/actions/restart`, undefined, () => render());
+    if (c.action === "certs") return runJob("POST", `${P()}/certs`, undefined, () => render());
     await openFix(run, c.id);
   });
+  if (c.action === "certs") return el("div.copy", el("span.small", c.fix), run);
   return el("div.copy", el("code", c.fix), run, copyBtn(c.fix));
 }
 
@@ -161,7 +163,19 @@ window.addEventListener("focus", () => {
   if (["general", "diagnostics", "kubernetes"].includes(state.tab)) render(); else refreshDiagBadge();
 });
 
-function needsFix(c) { return (c.state === "fail" || c.state === "warn") && c.id !== "vm"; }
+function needsFix(c) { return (c.state === "fail" || c.state === "warn") && c.id !== "vm" && !isMuted(c); }
+
+// Muted checks (this browser only) still run and show on Diagnostics, but leave the badge and
+// General's "things to fix" alone. Keyed by check id and title, so a muted check about one
+// thing does not hide a different problem under the same id.
+function mutedSet() { try { return new Set(JSON.parse(safeGet("muted") || "[]")); } catch { return new Set(); } }
+function muteKey(c) { return `${c.id}|${c.title}`; }
+function isMuted(c) { return mutedSet().has(muteKey(c)); }
+function setMuted(c, on) {
+  const m = mutedSet();
+  if (on) m.add(muteKey(c)); else m.delete(muteKey(c));
+  safeSet("muted", JSON.stringify([...m]));
+}
 
 // ---------- jobs (long-running operations with streamed output) ----------
 
@@ -656,8 +670,9 @@ async function showShell(id, name) {
   ro.observe(box);
 }
 
-function showFiles(id, name) {
-  const base = `${P()}/containers/${encodeURIComponent(id)}`;
+// showFiles browses a running container's files, or with kind "volume" a volume's (read in the VM).
+function showFiles(id, name, kind = "container") {
+  const base = kind === "volume" ? `${P()}/volumes/${encodeURIComponent(id)}` : `${P()}/containers/${encodeURIComponent(id)}`;
   const crumbs = el("nav.crumbs", { "aria-label": "Folder" });
   const pathBox = el("input.mono", { type: "text", "aria-label": "Go to path", spellcheck: false });
   const list = el("div.files");
@@ -716,7 +731,7 @@ function showFiles(id, name) {
     } catch (e) { viewer.replaceChildren(el("p.bad-text", e.message)); }
   };
   pathBox.addEventListener("keydown", (e) => { if (e.key === "Enter" && pathBox.value.startsWith("/")) go(pathBox.value); });
-  openDrawer(`Files: ${name}`, el("div.files-bar", crumbs, pathBox), viewer, list);
+  openDrawer(kind === "volume" ? `Volume: ${name}` : `Files: ${name}`, el("div.files-bar", crumbs, pathBox), viewer, list);
   go("/");
 }
 
@@ -741,11 +756,7 @@ async function showInspect(id, name) {
     const cfg = doc.Config || {};
     const host = doc.HostConfig || {};
     const parts = [];
-    if (stats && doc.State?.Running) {
-      parts.push(el("div.card", el("h2", "Now"), el("dl.kv",
-        el("dt", "CPU"), el("dd", `${stats.cpuPercent.toFixed(1)} %`),
-        el("dt", "Memory"), el("dd", `${bytes(stats.memoryBytes)} of ${bytes(stats.memoryLimit)}`))));
-    }
+    if (stats && doc.State?.Running) parts.push(liveStats(id, stats));
     parts.push(el("div.card", el("h2", "Container"), el("dl.kv",
       el("dt", "Image"), el("dd.mono", cfg.Image || ""),
       el("dt", "Command"), el("dd.mono", [...(cfg.Entrypoint || []), ...(cfg.Cmd || [])].join(" ") || "–"),
@@ -789,7 +800,114 @@ async function showInspect(id, name) {
   }
 }
 
+// Live stats for a running container: CPU, memory, network and disk rates every 2 seconds,
+// with a minute of history, and its processes. Stops when the drawer closes.
+function spark(values, max) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 120 28");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.classList.add("spark");
+  const top = Math.max(max || 0, ...values, 1e-9);
+  const pts = values.map((v, i) => `${(i / Math.max(values.length - 1, 1)) * 120},${27 - (v / top) * 25}`).join(" ");
+  const line = document.createElementNS(NS, "polyline");
+  line.setAttribute("points", values.length > 1 ? pts : "0,27 120,27");
+  svg.append(line);
+  return svg;
+}
+function liveStats(id, first) {
+  const N = 30;
+  const hist = { cpu: [], mem: [], rx: [], tx: [], rd: [], wr: [] };
+  const tiles = {};
+  const tile = (key, label) => {
+    tiles[key] = { val: el("strong"), chart: el("div.spark-box") };
+    return el("div.live-tile", el("span.muted.small", label), tiles[key].val, tiles[key].chart);
+  };
+  const grid = el("div.live-grid", tile("cpu", "CPU"), tile("mem", "Memory"), tile("net", "Network in / out"), tile("disk", "Disk read / write"));
+  const procs = el("div");
+  const pidsNote = el("span.muted.small");
+  const card = el("div.card", el("div.card-head", el("h2", "Live"), pidsNote), grid,
+    el("details.procs", el("summary", "Processes"), procs));
+  let prev = first, prevT = performance.now(), timer = null, stopped = false;
+  const rate = (a, b, dt) => (b >= a ? (b - a) / dt : 0);
+  const paint = (st, dt) => {
+    hist.cpu.push(st.cpuPercent); hist.mem.push(st.memoryBytes);
+    if (dt) {
+      hist.rx.push(rate(prev.netRx, st.netRx, dt)); hist.tx.push(rate(prev.netTx, st.netTx, dt));
+      hist.rd.push(rate(prev.blockRead, st.blockRead, dt)); hist.wr.push(rate(prev.blockWrite, st.blockWrite, dt));
+    }
+    for (const k of Object.keys(hist)) if (hist[k].length > N) hist[k].shift();
+    const last = (a) => a[a.length - 1] || 0;
+    tiles.cpu.val.textContent = `${st.cpuPercent.toFixed(1)} %`;
+    tiles.cpu.chart.replaceChildren(spark(hist.cpu, 100));
+    tiles.mem.val.textContent = `${bytes(st.memoryBytes)} of ${bytes(st.memoryLimit)}`;
+    tiles.mem.chart.replaceChildren(spark(hist.mem));
+    tiles.net.val.textContent = dt ? `${bytes(last(hist.rx))}/s · ${bytes(last(hist.tx))}/s` : "measuring…";
+    tiles.net.chart.replaceChildren(spark(hist.rx.map((v, i) => v + (hist.tx[i] || 0))));
+    tiles.disk.val.textContent = dt ? `${bytes(last(hist.rd))}/s · ${bytes(last(hist.wr))}/s` : "measuring…";
+    tiles.disk.chart.replaceChildren(spark(hist.rd.map((v, i) => v + (hist.wr[i] || 0))));
+    pidsNote.textContent = st.pids ? `${st.pids} process${st.pids === 1 ? "" : "es"} · every 2 s` : "every 2 s";
+  };
+  const loadTop = async () => {
+    try {
+      const t = await api("GET", `${P()}/containers/${encodeURIComponent(id)}/top`);
+      procs.replaceChildren(el("div.table-wrap", el("table.small",
+        el("thead", el("tr", (t.titles || []).map((h) => el("th", h)))),
+        el("tbody", (t.processes || []).map((row) => el("tr", row.map((c, i) => el(i === row.length - 1 ? "td.mono" : "td", c))))))));
+    } catch (e) { procs.replaceChildren(el("p.muted.small", e.message)); }
+  };
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const st = await api("GET", `${P()}/containers/${encodeURIComponent(id)}/stats`);
+      const now = performance.now();
+      paint(st, (now - prevT) / 1000);
+      prev = st; prevT = now;
+      if (card.querySelector("details.procs").open) loadTop();
+    } catch { /* stopped container or engine gone: keep the last figures */ }
+    if (!stopped) timer = setTimeout(tick, 2000);
+  };
+  card.querySelector("details.procs").addEventListener("toggle", (e) => { if (e.target.open) loadTop(); });
+  paint(first, 0);
+  timer = setTimeout(tick, 2000);
+  state.drawerCleanup = () => { stopped = true; clearTimeout(timer); };
+  return card;
+}
+
 // ---------- Images ----------
+
+// Build an image from a folder on the Mac, with the docker CLI (so BuildKit and its cache apply).
+function buildCard() {
+  const dir = el("input.mono", { placeholder: "~/code/my-app", "aria-label": "Folder to build", value: safeGet("buildDir") || "", spellcheck: false });
+  const tag = el("input.mono", { placeholder: "my-app:dev (optional)", "aria-label": "Image name", value: safeGet("buildTag") || "", spellcheck: false });
+  const file = el("input.mono", { placeholder: "Dockerfile (optional)", "aria-label": "Dockerfile", spellcheck: false });
+  const go = el("button", { type: "button" }, "Build");
+  const run = () => {
+    if (!dir.value.trim()) { dir.focus(); return; }
+    safeSet("buildDir", dir.value.trim()); safeSet("buildTag", tag.value.trim());
+    runJob("POST", `${P()}/images/build`, { dir: dir.value.trim(), tag: tag.value.trim(), dockerfile: file.value.trim() }, () => render());
+  };
+  go.addEventListener("click", run);
+  for (const i of [dir, tag, file]) i.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+  const d = el("details.card.build-card",
+    el("summary", el("strong", "Build an image"), el("span.muted.small", " from a folder on this Mac")),
+    el("div.build-form", dir, tag, file, go),
+    el("p.muted.small", "Runs docker build against this profile. The Builds page keeps its timing and cache history."));
+  if (safeGet("buildOpen") === "1") d.open = true;
+  d.addEventListener("toggle", () => safeSet("buildOpen", d.open ? "1" : "0"));
+  return d;
+}
+
+async function pushImage(tags) {
+  let ref = tags[0];
+  const pick = tags.length > 1 ? el("select", { "aria-label": "Tag to push" }, tags.map((t) => el("option", { value: t }, t))) : null;
+  if (pick) pick.addEventListener("change", () => { ref = pick.value; });
+  const ok = await confirmBox("Push image?", el("div",
+    pick ? el("p", "Tag: ", pick) : el("p", el("code", ref)),
+    el("p.muted.small", "Uploads to the registry in the name (Docker Hub when there is none), with the credentials of docker login on this Mac.")), "Push");
+  if (!ok) return;
+  runJob("POST", `${P()}/images/push`, { ref }, () => {});
+}
 
 async function renderImages(main) {
   const ref = el("input", { placeholder: "nginx:latest", "aria-label": "Image to pull", size: 28 });
@@ -802,11 +920,11 @@ async function renderImages(main) {
   pull.addEventListener("click", doPull);
   ref.addEventListener("keydown", (e) => { if (e.key === "Enter") doPull(); });
   const head = el("div.head",
-    el("div", el("h1", "Images"), el("p.muted", "Pull, remove, scan and prune images.")),
+    el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, scan, remove and prune images.")),
     el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused")));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
-  main.replaceChildren(head, body);
+  main.replaceChildren(head, buildCard(), body);
   const imgs = await api("GET", `${P()}/images`);
   if (!imgs.length) { body.replaceChildren(el("p.empty", "No images yet.")); return; }
   const rows = [];
@@ -821,6 +939,7 @@ async function renderImages(main) {
       el("td", i.Containers > 0 ? el("span.pill.running", `in use (${i.Containers})`) : el("span.pill", "unused")),
       el("td.actions",
         el("button.ghost.mini", { type: "button", onclick: () => scanImage(tags[0] || i.Id) }, "Scan"),
+        tags.length ? el("button.ghost.mini", { type: "button", onclick: () => pushImage(tags) }, "Push") : null,
         el("button.ghost.mini.danger", { type: "button", onclick: () => removeImage(i, label) }, "Remove"))));
   }
   body.replaceChildren(el("table",
@@ -860,7 +979,9 @@ async function renderVolumes(main) {
       el("td", v.UsageData ? bytes(v.UsageData.Size) : "–"),
       el("td", v.usedBy.length ? v.usedBy.join(", ") : el("span.pill", "unused")),
       el("td.small", v.CreatedAt ? new Date(v.CreatedAt).toLocaleString() : "–"),
-      el("td.actions", el("button.ghost.mini.danger", { type: "button", onclick: () => removeVolume(v) }, "Remove")))))));
+      el("td.actions",
+        el("button.ghost.mini", { type: "button", onclick: () => showFiles(v.Name, v.Name, "volume") }, "Browse"),
+        el("button.ghost.mini.danger", { type: "button", onclick: () => removeVolume(v) }, "Remove")))))));
 }
 
 async function removeVolume(v) {
@@ -1032,14 +1153,15 @@ async function renderSnapshots(main) {
     el("p.muted", `Save profile ${state.profile} as it is now (VM, images, containers, volumes and settings) and go back to it later.`)));
   if (!p) { main.replaceChildren(head, notRunningCard()); return; }
   const name = el("input", { type: "text", placeholder: "Name, e.g. Before upgrading Postgres", maxlength: 80, "aria-label": "Snapshot name" });
+  const note = el("input", { type: "text", placeholder: "Description (optional)", maxlength: 500, "aria-label": "Snapshot description" });
   const take = el("button", { type: "button", disabled: running }, "Save snapshot");
-  take.addEventListener("click", () => runJob("POST", `${P()}/snapshots`, { name: name.value }, () => render()));
+  take.addEventListener("click", () => runJob("POST", `${P()}/snapshots`, { name: name.value, note: note.value }, () => render()));
   name.addEventListener("keydown", (e) => { if (e.key === "Enter" && !take.disabled) take.click(); });
   const stopBtn = el("button.ghost", { type: "button", onclick: () => runJob("POST", `${P()}/actions/stop`, undefined, render) }, `Stop ${state.profile}`);
   const save = el("section.card",
     el("h2", "New snapshot"),
     running ? el("div.notice", el("p", "Snapshots are taken and restored with the VM stopped, so the disks are consistent. Stopping takes a few seconds."), stopBtn) : null,
-    el("div.snap-new", name, take),
+    el("div.snap-new", name, note, take),
     el("p.small.muted", "Snapshots are APFS clones: saving takes a second, and they only use disk space for what changes afterwards. Kept in ~/Library/Application Support/colima-dashboard/snapshots."));
   const listCard = el("section.card", el("h2", "Saved"), el("p.muted.small", "Loading…"));
   main.replaceChildren(head, save, listCard);
@@ -1057,7 +1179,7 @@ async function renderSnapshots(main) {
   listCard.replaceChildren(el("h2", "Saved"), el("div.table-wrap", el("table",
     el("thead", el("tr", el("th", "Name"), el("th", "Saved"), el("th"))),
     el("tbody", list.map((sn) => el("tr",
-      el("td", el("strong", sn.name), sn.auto ? [" ", el("span.pill.x", "automatic")] : null),
+      el("td", el("strong", sn.name), sn.auto ? [" ", el("span.pill.x", "automatic")] : null, sn.note ? el("div.muted.small", sn.note) : null),
       el("td.small", new Date(sn.created).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), el("div.muted.small", ago(Date.parse(sn.created) / 1000))),
       el("td.actions",
         el("button.ghost.mini", { type: "button", disabled: running, title: running ? "Stop the profile first" : "", onclick: () => restore(sn) }, "Restore"),
@@ -1116,9 +1238,37 @@ async function renderPreferences(main) {
     runJob("POST", `/api/profiles/${encodeURIComponent(n)}/actions/start`, {}, () => { state.profile = n; safeSet("profile", n); refreshOverview().then(render); });
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
-  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, alertsCard(),
+  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(),
     el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
 }
+
+// The dashboard itself: start at login and the colour theme (this browser only).
+function appCard() {
+  const login = el("input", { type: "checkbox", disabled: true });
+  const loginNote = el("span.muted.small", "");
+  api("GET", "/api/login-item").then((l) => {
+    login.checked = l.enabled; login.disabled = !l.available;
+    if (!l.available) loginNote.textContent = " (not available in this build)";
+  }).catch(() => {});
+  login.addEventListener("change", async () => {
+    try { await api("POST", "/api/login-item", { enabled: login.checked }); toast(login.checked ? "Colima Dashboard starts at your next login" : "Colima Dashboard no longer starts at login"); }
+    catch (e) { login.checked = !login.checked; toast(e.message, true); }
+  });
+  const theme = el("select", { "aria-label": "Theme" },
+    [["system", "Match macOS"], ["light", "Light"], ["dark", "Dark"]].map(([v, t]) => el("option", { value: v }, t)));
+  theme.value = safeGet("theme") || "system";
+  theme.addEventListener("change", () => { safeSet("theme", theme.value); applyTheme(); });
+  return el("section.card", el("h2", "Colima Dashboard"),
+    el("label.check", login, "Start Colima Dashboard when I log in", loginNote),
+    el("div.field-row", el("span", "Theme"), theme));
+}
+
+function applyTheme() {
+  const t = safeGet("theme");
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+}
+applyTheme();
 
 // Notifications and the menu bar icon, plus the latest alerts.
 function alertsCard() {
@@ -1191,15 +1341,32 @@ async function renderDiagnostics(main) {
   main.replaceChildren(head, checks);
   const list = await api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`);
   setDiagBadge(list);
-  checks.replaceChildren(el("table", el("tbody", list.map((c) => el("tr",
-    el("td", el(`span.pill.${c.state}`, c.state)),
-    el("td", el("strong", c.title), el("div.muted.small", c.detail), fixRow(c)))))));
+  const showMuted = el("input", { type: "checkbox", checked: safeGet("showMuted") === "1" });
+  const paint = () => {
+    const muted = mutedSet();
+    const visible = list.filter((c) => showMuted.checked || !muted.has(muteKey(c)));
+    const hidden = list.length - visible.length;
+    checks.replaceChildren(
+      el("div.card-head", el("span.muted.small", hidden ? `${hidden} muted check${hidden === 1 ? "" : "s"} hidden` : `${list.length} checks`),
+        el("label.check.small", showMuted, "Show muted")),
+      el("table", el("tbody", visible.map((c) => {
+        const problem = c.state === "fail" || c.state === "warn";
+        const mute = problem ? el("button.ghost.mini", { type: "button" }, muted.has(muteKey(c)) ? "Unmute" : "Mute") : null;
+        if (mute) mute.addEventListener("click", () => { setMuted(c, !isMuted(c)); setDiagBadge(list); paint(); });
+        return el(muted.has(muteKey(c)) ? "tr.muted-row" : "tr",
+          el("td", el(`span.pill.${c.state}`, c.state)),
+          el("td", el("strong", c.title), el("div.muted.small", c.detail), fixRow(c)),
+          el("td.actions", mute));
+      }))));
+  };
+  showMuted.addEventListener("change", () => { safeSet("showMuted", showMuted.checked ? "1" : "0"); paint(); });
+  paint();
 }
 
 function setDiagBadge(list) {
   const b = $("#diagbadge");
-  const fails = list.filter((c) => c.state === "fail").length;
-  const warns = list.filter((c) => c.state === "warn").length;
+  const fails = list.filter((c) => c.state === "fail" && !isMuted(c)).length;
+  const warns = list.filter((c) => c.state === "warn" && !isMuted(c)).length;
   const n = fails + warns;
   b.hidden = n === 0;
   b.textContent = String(n);

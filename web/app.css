@@ -53,6 +53,32 @@
   }
 }
 
+:root[data-theme="dark"] {
+  --bg: #0f1418;
+  --panel: #161d23;
+  --side: #12181d;
+  --text: #e6edf3;
+  --muted: #9aa7b4;
+  --line: #26313a;
+  --accent: #2dd4bf;
+  --accent-text: #04201c;
+  --accent-soft: #103a35;
+  --ok: #4ade80;
+  --ok-soft: #12321f;
+  --warn: #fbbf24;
+  --warn-soft: #3a2c0b;
+  --bad: #f87171;
+  --bad-soft: #3d1614;
+  --code: #0b1014;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
+  --series-other: #6f6e69; --series-system: #4a4945;
+  --hero-a: #3730a3; --hero-b: #6d28d9;
+  --grid: #253039; --head-band: #1c2230;
+  color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
@@ -515,3 +541,21 @@ details.card summary { cursor: pointer; }
 .alert-list { list-style: none; margin: 0; padding: 0; }
 .alert-list li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
 .alert-list .sev { margin-top: 2px; }
+
+/* live container stats */
+.live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.live-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.live-tile strong { font-variant-numeric: tabular-nums; }
+.spark-box { height: 28px; }
+.spark { width: 100%; height: 28px; display: block; }
+.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.procs { margin-top: 12px; }
+.procs summary { cursor: pointer; font-weight: 600; }
+
+/* build an image */
+.build-card summary { cursor: pointer; }
+.build-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 8px; margin: 12px 0 6px; }
+@media (max-width: 720px) { .build-form { grid-template-columns: minmax(0, 1fr); } }
+.field-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.muted-row { opacity: 0.55; }
+@media (max-width: 720px) { .snap-new { flex-wrap: wrap; } .snap-new input { flex-basis: 100%; } }
