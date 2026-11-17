@@ -141,7 +141,7 @@ function followJob(job, onDone) {
   src.addEventListener("line", (e) => {
     const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
     const line = JSON.parse(e.data);
-    log.append(line + "\n");
+    log.append(logfmt.line(line));
     if (atBottom) log.scrollTop = log.scrollHeight;
     trackLine(job, line);
   });
@@ -151,7 +151,7 @@ function followJob(job, onDone) {
     trackEnd(job, d.ok);
     st.textContent = d.ok ? "done" : "failed";
     st.className = d.ok ? "pill ok" : "pill fail";
-    if (!d.ok) log.append(el("span.err", `\n${d.error}\n`));
+    if (!d.ok) log.append(logfmt.line(`ERROR ${d.error}`, "", true));
     log.scrollTop = log.scrollHeight;
     if (onDone) onDone(d.ok);
     refreshOverview();
@@ -514,14 +514,7 @@ function showLogs(id, name) {
 }
 
 function lineNode(l, q) {
-  const node = el(l.s === "stderr" ? "div.err" : "div");
-  if (q && l.t.toLowerCase().includes(q.toLowerCase())) {
-    const i = l.t.toLowerCase().indexOf(q.toLowerCase());
-    node.append(l.t.slice(0, i), el("mark", l.t.slice(i, i + q.length)), l.t.slice(i + q.length));
-  } else {
-    node.textContent = l.t;
-  }
-  return node;
+  return logfmt.line(l.t, q, l.s === "stderr");
 }
 
 function download(name, text) {
@@ -881,6 +874,19 @@ async function renderPorts(main) {
   }
 }
 
+// A whole log file, formatted line by line (the last 2000 lines; Download has all of it).
+function logBlock(text) {
+  const pre = el("pre.log");
+  const lines = (text || "").split("\n");
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  if (!lines.length) { pre.textContent = "(empty)"; return pre; }
+  const shown = lines.slice(-2000);
+  if (shown.length < lines.length) pre.append(el("div.muted.small", `… ${lines.length - shown.length} earlier lines; Download for all of them`));
+  pre.append(...shown.map((l) => logfmt.line(l)));
+  queueMicrotask(() => { pre.scrollTop = pre.scrollHeight; });
+  return pre;
+}
+
 async function showVMLogs() {
   openDrawer(`VM logs: ${state.profile}`, el("p.muted", "Loading…"));
   try {
@@ -889,7 +895,7 @@ async function showVMLogs() {
     if (!names.length) { $("#drawerbody").replaceChildren(el("p.muted", "No log files for this profile yet.")); return; }
     $("#drawerbody").replaceChildren(...names.flatMap((n) => [
       el("div.toolbar", el("h2", n), el("button.ghost.mini", { type: "button", onclick: () => download(`${state.profile}-${n}`, logs[n]) }, "Download")),
-      el("pre.log", logs[n] || "(empty)"),
+      logBlock(logs[n]),
     ]));
   } catch (e) {
     $("#drawerbody").replaceChildren(el("div.notice.bad", e.message));
