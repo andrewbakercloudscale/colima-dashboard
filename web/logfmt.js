@@ -53,25 +53,49 @@
     KV.lastIndex = 0;
     while ((m = KV.exec(rest))) {
       if (m.index > last) out.append(rest.slice(last, m.index));
-      out.append(span("lg-key", m[1] + "="), span("lg-val", unq(m[2])));
+      const v = span("lg-val", "");
+      plain(unq(m[2]), v);
+      out.append(span("lg-key", m[1] + "="), v);
       last = KV.lastIndex;
     }
     if (last < rest.length) out.append(rest.slice(last));
   }
   const unq = (v) => (v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1).replace(/\\"/g, '"') : v);
 
-  // Plain text: level words and HTTP status codes.
-  const WORDS = /\b(ERROR|ERR|FATAL|PANIC|CRITICAL|WARN|WARNING|INFO|DEBUG|TRACE)\b|(" )([1-5]\d\d)( )/g;
+  // Plain text, token by token: URLs, quoted strings, `code`, [tags], paths, --flags,
+  // IP addresses, level words, HTTP status codes and numbers each get their own colour.
+  const TOKENS = new RegExp([
+    /(https?:\/\/[^\s"'`\]]+)/.source,                                  // 1 url
+    /("(?:[^"\\]|\\.)*")/.source,                                      // 2 "quoted"
+    /(`[^`]*`)/.source,                                                  // 3 `code`
+    /(\[[A-Za-z][\w .:-]{0,30}\])/.source,                                // 4 [tag]
+    /((?:~|\.{1,2})?\/(?:[\w.@%+~:-]+\/?)+)/.source,                        // 5 /path
+    /((?:^|(?<=\s))--?[A-Za-z][\w-]*)/.source,                              // 6 --flag
+    /(\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b)/.source,                         // 7 ip:port
+    /\b(ERROR|ERR|FATAL|PANIC|CRITICAL|WARN|WARNING|INFO|DEBUG|TRACE)\b/.source, // 8 level word
+    /(?<=" )([1-5]\d\d)(?= )/.source,                                     // 9 http status
+    /(\b\d+(?:\.\d+)?(?:ms|µs|ns|s|m|h|%|[KMGT]i?B)?\b)/.source,             // 10 number
+  ].join("|"), "g");
+  const TOKEN_CLASS = { 1: "tk-url", 2: "tk-str", 3: "tk-code", 4: "tk-tag", 5: "tk-path", 6: "tk-flag", 7: "tk-ip", 10: "tk-num" };
   function plain(text, out) {
     let last = 0, m;
-    WORDS.lastIndex = 0;
-    while ((m = WORDS.exec(text))) {
+    TOKENS.lastIndex = 0;
+    while ((m = TOKENS.exec(text))) {
+      if (!m[0]) { TOKENS.lastIndex++; continue; }
       if (m.index > last) out.append(text.slice(last, m.index));
-      if (m[1]) out.append(span(`lg-word lv-${levelOf(m[1])}`, m[1]));
-      else out.append(m[2], span(`lg-http h${m[3][0]}`, m[3]), m[4]);
-      last = WORDS.lastIndex;
+      const g = m.findIndex((v, i) => i > 0 && v !== undefined);
+      if (g === 8) out.append(span(`lg-word lv-${levelOf(m[8])}`, m[8]));
+      else if (g === 9) out.append(span(`lg-http h${m[9][0]}`, m[9]));
+      else out.append(span(TOKEN_CLASS[g] || "", m[0]));
+      last = m.index + m[0].length;
     }
     if (last < text.length) out.append(text.slice(last));
+  }
+  // A message: tokens coloured inside a span carrying the level's tone.
+  function message(text, level) {
+    const s = span(`lg-msg lv-${levelOf(level) || "info"}-text`, "");
+    plain(text, s);
+    return s;
   }
 
   const LOGFMT = /^time="([^"]+)"\s+level=(\w+)\s+msg=("(?:[^"\\]|\\.)*"|\S+)\s*(.*)$/;
@@ -90,12 +114,12 @@
     if (body.includes("\x1b[")) {
       ansi(body, div);
     } else if ((m = LOGFMT.exec(body))) {
-      div.append(stamp(m[1]), " ", badge(m[2]), " ", span(`lg-msg lv-${levelOf(m[2]) || "info"}-text`, unq(m[3])));
+      div.append(stamp(m[1]), " ", badge(m[2]), " ", message(unq(m[3]), m[2]));
       if (m[4]) { div.append(" "); pairs(m[4], div); }
     } else if (body.startsWith("{") && (m = tryJSON(body)) && (m.msg || m.message)) {
       const lvl = m.level || m.severity || m.lvl || "info";
       if (m.time || m.ts || m.timestamp) div.append(stamp(String(m.time || m.ts || m.timestamp)), " ");
-      div.append(badge(lvl), " ", span(`lg-msg lv-${levelOf(lvl) || "info"}-text`, String(m.msg || m.message)));
+      div.append(badge(lvl), " ", message(String(m.msg || m.message), lvl));
       for (const [k, v] of Object.entries(m)) {
         if (["msg", "message", "level", "severity", "lvl", "time", "ts", "timestamp"].includes(k)) continue;
         div.append(" ", span("lg-key", k + "="), span("lg-val", typeof v === "string" ? v : JSON.stringify(v)));
