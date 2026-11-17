@@ -4,9 +4,28 @@ A lightweight, local web UI for [Colima](https://github.com/abiosoft/colima) on 
 screens of a desktop container app (status, containers, images, volumes, Kubernetes, preferences and
 troubleshooting) in one small binary, opened in your browser.
 
-**Status:** version 1 in progress, not released. See [docs/PLAN.md](docs/PLAN.md).
+**Status:** early release (0.1.0). See [docs/PLAN.md](docs/PLAN.md).
 
-## Run it
+## Install
+
+Paste this into Terminal (needs [Homebrew](https://brew.sh)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewbakercloudscale/colima-dashboard/main/install.sh | bash
+```
+
+It installs Colima and the Docker tools with Homebrew (`colima docker docker-compose docker-buildx
+docker-credential-helper`), points the docker CLI at compose and buildx, downloads the latest
+Colima Dashboard release (checksum verified), starts it now and at every login, and opens
+`http://127.0.0.1:7766`. Then press **Start** on the General page to create your first VM.
+Add `--kubectl` for kubectl, `--no-service` to skip the login item, `--dry-run` to see the steps
+first: `curl -fsSL …/install.sh | bash -s -- --dry-run`.
+
+Colima Dashboard updates itself when a new release is out (untick "Update automatically" on the
+General page to stop that). To remove it: `colima-dashboard uninstall-service` and delete the
+binary from Homebrew's `bin` folder.
+
+## Build from source
 
 ```sh
 go build -o colima-dashboard ./cmd/colima-dashboard
