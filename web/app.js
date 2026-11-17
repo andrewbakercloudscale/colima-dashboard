@@ -262,6 +262,7 @@ async function runJob(method, path, body, onDone) {
 // ---------- drawer (logs, inspect) ----------
 
 function openDrawer(title, ...content) {
+  if (state.drawerCleanup) { state.drawerCleanup(); state.drawerCleanup = null; }
   $("#drawertitle").textContent = title;
   $("#drawerbody").replaceChildren(...content);
   $("#drawer").hidden = false;
@@ -269,6 +270,7 @@ function openDrawer(title, ...content) {
 function closeDrawer() {
   $("#drawer").hidden = true;
   if (state.logSource) { state.logSource.close(); state.logSource = null; }
+  if (state.drawerCleanup) { state.drawerCleanup(); state.drawerCleanup = null; }
 }
 $("#drawerclose").addEventListener("click", closeDrawer);
 $("#drawer").addEventListener("click", (e) => { if (e.target.id === "drawer") closeDrawer(); });
@@ -511,6 +513,8 @@ function containerRow(c) {
       paused ? el("button.ghost.mini", { type: "button", onclick: act("unpause") }, "Resume") : null,
       !running && !paused ? el("button.ghost.mini", { type: "button", onclick: act("start") }, "Start") : null,
       el("button.ghost.mini", { type: "button", onclick: act("restart") }, "Restart"),
+      running ? el("button.ghost.mini", { type: "button", onclick: () => showShell(c.Id, name) }, "Shell") : null,
+      running ? el("button.ghost.mini", { type: "button", onclick: () => showFiles(c.Id, name) }, "Files") : null,
       el("button.ghost.mini", { type: "button", onclick: () => showLogs(c.Id, name) }, "Logs"),
       el("button.ghost.mini", { type: "button", onclick: () => showInspect(c.Id, name) }, "Inspect"),
       el("button.ghost.mini.danger", { type: "button", onclick: () => removeContainer(c, name) }, "Remove")));
@@ -567,6 +571,151 @@ function showLogs(id, name) {
       el("button.ghost.mini", { type: "button", onclick: () => download(`${name}.log`, lines.map((l) => l.t).join("\n")) }, "Download")),
     log);
   start();
+}
+
+// ---------- shell and files inside a container ----------
+
+let xtermLoad = null;
+function loadXterm() {
+  if (window.Terminal && window.FitAddon) return Promise.resolve();
+  const add = (src) => new Promise((ok, fail) => {
+    const sc = document.createElement("script");
+    sc.src = src; sc.onload = ok; sc.onerror = () => fail(new Error(`could not load ${src}`));
+    document.head.append(sc);
+  });
+  xtermLoad ??= (async () => {
+    document.head.append(el("link", { rel: "stylesheet", href: "/static/vendor/xterm.css" }));
+    await add("/static/vendor/xterm.js");
+    await add("/static/vendor/addon-fit.js");
+  })();
+  return xtermLoad;
+}
+
+async function showShell(id, name) {
+  const box = el("div.term");
+  const status = el("span.term-status", el("i"), "Connecting…");
+  const setStatus = (text, tone) => { status.className = `term-status ${tone || ""}`; status.replaceChildren(el("i"), text); };
+  openDrawer(`Shell: ${name}`,
+    el("div.term-bar", status, el("span.muted.small", "bash, or sh when the image has no bash. Closing this panel ends the shell.")), box);
+  try { await loadXterm(); } catch (e) { setStatus(e.message, "bad"); return; }
+  const term = new window.Terminal({
+    cursorBlink: true, fontSize: 13, scrollback: 5000,
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    theme: { background: "#0d1117", foreground: "#e6edf3", cursor: "#5eead4", selectionBackground: "#264f78" },
+  });
+  const fit = new window.FitAddon.FitAddon();
+  term.loadAddon(fit);
+  // xterm.js adds <style> elements; the page's CSP admits them only with this page load's nonce.
+  const nonce = document.querySelector('meta[name="style-nonce"]')?.content || "";
+  const create = document.createElement;
+  document.createElement = function (tag, ...rest) {
+    const node = create.call(document, tag, ...rest);
+    if (String(tag).toLowerCase() === "style") node.nonce = nonce;
+    return node;
+  };
+  try { term.open(box); } finally { document.createElement = create; }
+  fit.fit();
+  term.focus();
+  let sid, src, ro;
+  let closed = false;
+  state.drawerCleanup = () => {
+    closed = true;
+    ro?.disconnect();
+    src?.close();
+    if (sid) fetch(`/api/shells/${sid}`, { method: "DELETE", credentials: "same-origin" }).catch(() => {});
+    term.dispose();
+  };
+  try {
+    ({ id: sid } = await api("POST", `${P()}/containers/${encodeURIComponent(id)}/shell`, { cols: term.cols, rows: term.rows }));
+  } catch (e) { setStatus(e.message, "bad"); return; }
+  if (closed) { fetch(`/api/shells/${sid}`, { method: "DELETE", credentials: "same-origin" }).catch(() => {}); return; }
+  setStatus("Connected", "on");
+  src = new EventSource(`/api/shells/${sid}/stream`);
+  src.addEventListener("out", (e) => term.write(Uint8Array.from(atob(JSON.parse(e.data)), (c) => c.charCodeAt(0))));
+  src.addEventListener("exit", (e) => {
+    src.close();
+    setStatus(`Ended (exit code ${JSON.parse(e.data)})`, "");
+    term.write("\r\n\x1b[2m[shell ended]\x1b[0m\r\n");
+  });
+  src.onerror = () => { if (!closed && src.readyState === EventSource.CLOSED) setStatus("Disconnected", "bad"); };
+  // Keystrokes go in order, batched while a send is in flight.
+  let pending = "", sending = false;
+  const flush = async () => {
+    if (sending || !pending || closed) return;
+    sending = true;
+    const data = pending;
+    pending = "";
+    try { await api("POST", `/api/shells/${sid}/input`, { data }); } catch (e) { setStatus(e.message, "bad"); }
+    sending = false;
+    flush();
+  };
+  term.onData((d) => { pending += d; flush(); });
+  term.onResize(({ cols, rows }) => { api("POST", `/api/shells/${sid}/resize`, { cols, rows }).catch(() => {}); });
+  ro = new ResizeObserver(() => { try { fit.fit(); } catch { /* panel closing */ } });
+  ro.observe(box);
+}
+
+function showFiles(id, name) {
+  const base = `${P()}/containers/${encodeURIComponent(id)}`;
+  const crumbs = el("nav.crumbs", { "aria-label": "Folder" });
+  const pathBox = el("input.mono", { type: "text", "aria-label": "Go to path", spellcheck: false });
+  const list = el("div.files");
+  const viewer = el("div.viewer", { hidden: true });
+  const dl = (p, kind) => el("a.btn.ghost.mini", { href: `${base}/download?path=${encodeURIComponent(p)}&kind=${kind}`, download: "" },
+    kind === "file" ? "Download" : "Download .tar");
+  const join = (dir, n) => (dir === "/" ? "" : dir) + "/" + n;
+  const go = async (dir) => {
+    pathBox.value = dir;
+    viewer.hidden = true;
+    list.replaceChildren(el("p.muted.small", "Loading…"));
+    const parts = dir.split("/").filter(Boolean);
+    crumbs.replaceChildren(el("button.link", { type: "button", onclick: () => go("/") }, "/"),
+      ...parts.flatMap((p, i) => [el("span.muted", "/"),
+        el("button.link", { type: "button", onclick: () => go("/" + parts.slice(0, i + 1).join("/")) }, p)]));
+    let d;
+    try { d = await api("GET", `${base}/files?path=${encodeURIComponent(dir)}`); }
+    catch (e) {
+      list.replaceChildren(el("div.notice", el("p", e.message), el("p.small", "You can still download this folder as a .tar: "), dl(dir, "dir")));
+      return;
+    }
+    const kindOrder = { dir: 0, link: 1, file: 2 };
+    d.entries.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.name.localeCompare(b.name));
+    const icon = (k) => el(`span.ficon.${k}`, k === "dir" ? "▸" : k === "link" ? "↪" : "•");
+    const rows = d.entries.map((f) => {
+      const p = join(d.path, f.name);
+      const open = f.kind === "dir" || f.kind === "link"
+        ? () => go(p)
+        : () => view(p, f);
+      return el("tr",
+        el("td", icon(f.kind), " ", el("button.link.mono", { type: "button", onclick: open }, f.name)),
+        el("td.small.num", f.kind === "dir" ? "–" : bytes(f.size)),
+        el("td.small.muted", f.modified ? new Date(f.modified * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "–"),
+        el("td.actions", f.kind === "dir" ? dl(p, "dir") : dl(p, "file")));
+    });
+    list.replaceChildren(
+      el("div.files-head", el("span.muted.small", `${d.entries.length} item${d.entries.length === 1 ? "" : "s"}${d.truncated ? " (first 2000 shown)" : ""}`), dl(d.path, "dir")),
+      d.entries.length
+        ? el("div.table-wrap", el("table.files-table",
+          el("thead", el("tr", el("th", "Name"), el("th", "Size"), el("th", "Modified"), el("th"))),
+          shortBody(rows, 200)))
+        : el("p.muted", "This folder is empty."));
+  };
+  const view = async (p, f) => {
+    viewer.hidden = false;
+    viewer.replaceChildren(el("p.muted.small", "Opening…"));
+    viewer.scrollIntoView({ block: "nearest" });
+    try {
+      const v = await api("GET", `${base}/file?path=${encodeURIComponent(p)}`);
+      viewer.replaceChildren(
+        el("div.viewer-head", el("strong.mono", p), el("span.muted.small", bytes(v.size)), dl(p, "file"),
+          el("button.ghost.mini", { type: "button", onclick: () => { viewer.hidden = true; } }, "Close")),
+        v.binary ? el("p.muted", "A binary file; download it to open it.")
+          : el("pre.log.file-text", v.text, v.truncated ? el("span.muted", `\n… first 512 KB of ${bytes(v.size)} shown`) : null));
+    } catch (e) { viewer.replaceChildren(el("p.bad-text", e.message)); }
+  };
+  pathBox.addEventListener("keydown", (e) => { if (e.key === "Enter" && pathBox.value.startsWith("/")) go(pathBox.value); });
+  openDrawer(`Files: ${name}`, el("div.files-bar", crumbs, pathBox), viewer, list);
+  go("/");
 }
 
 function lineNode(l, q) {
@@ -725,23 +874,62 @@ async function pruneVolumes() {
 // ---------- Kubernetes ----------
 
 async function renderKubernetes(main) {
-  const head = el("div.head", el("div", el("h1", "Kubernetes"), el("p.muted", "k3s inside the Colima VM.")));
+  const head = el("div.head", el("div", el("h1", "Kubernetes"), el("p.muted", "k3s inside the Colima VM: version, ingress, workloads and their logs.")));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   main.replaceChildren(head, el("div.card", el("p.muted", "Loading…")));
   const k = await api("GET", `${P()}/kubernetes`);
-  const toggle = el("button", { type: "button" }, k.enabled ? "Turn Kubernetes off" : "Turn Kubernetes on");
+  const set = k.settings || {};
+  const restartNote = `Colima restarts profile ${state.profile}; running containers stop for a minute.`;
+
+  // Settings: on or off, version, Traefik, reset. Each change restarts the VM, so each asks first.
+  const toggle = el("button", { type: "button", class: k.enabled ? "ghost" : "" }, k.enabled ? "Turn off" : "Turn on");
   toggle.addEventListener("click", async () => {
     const on = !k.enabled;
-    if (!await confirmBox(on ? "Turn Kubernetes on?" : "Turn Kubernetes off?",
-      `Colima restarts profile ${state.profile} to ${on ? "start" : "stop"} k3s. Running containers stop for a minute.`, on ? "Turn on" : "Turn off", false)) return;
+    if (!await confirmBox(on ? "Turn Kubernetes on?" : "Turn Kubernetes off?", restartNote, on ? "Turn on" : "Turn off", false)) return;
     runJob("POST", `${P()}/actions/apply`, { kubernetes: on }, () => render());
   });
-  const card = el("div.card", el("h2", `Kubernetes is ${k.enabled ? "on" : "off"}`), toggle);
-  const parts = [card];
+  const verSel = el("select", { "aria-label": "k3s version" }, el("option", { value: set.version || "" }, set.version || "colima's default"));
+  const verBtn = el("button.ghost", { type: "button", disabled: true }, "Change version");
+  api("GET", "/api/k3s/versions").then((vs) => {
+    const opts = vs.map((v) => el("option", { value: v.version, selected: v.version === set.version },
+      `${v.version}  (${v.channel === "stable" ? "stable" : v.channel})`));
+    if (set.version && !vs.some((v) => v.version === set.version)) opts.unshift(el("option", { value: set.version, selected: true }, `${set.version}  (current)`));
+    verSel.replaceChildren(...opts);
+  }).catch(() => { /* keep the current version only */ });
+  verSel.addEventListener("change", () => { verBtn.disabled = verSel.value === set.version; });
+  verBtn.addEventListener("click", async () => {
+    const v = verSel.value;
+    const older = set.version && v.localeCompare(set.version, undefined, { numeric: true }) < 0;
+    if (!await confirmBox(`Switch k3s to ${v}?`, older
+      ? `${v} is older than ${set.version}. k3s cannot go back a version in place: reset Kubernetes afterwards if it fails to start. ${restartNote}`
+      : `${restartNote} Workloads stay.`, "Switch", older)) return;
+    runJob("POST", `${P()}/actions/apply`, { kubernetesVersion: v, ...(k.enabled ? {} : { kubernetes: true }) }, () => render());
+  });
+  const traefik = el("input", { type: "checkbox", checked: !!set.traefik });
+  traefik.addEventListener("change", async () => {
+    const on = traefik.checked;
+    if (!await confirmBox(on ? "Turn on Traefik?" : "Turn off Traefik?",
+      `${on ? "k3s installs the Traefik ingress controller and load balancer on ports 80 and 443." : "k3s removes Traefik; Ingress resources stop being served."} ${restartNote}`, on ? "Turn on" : "Turn off", false)) {
+      traefik.checked = !on; return;
+    }
+    runJob("POST", `${P()}/actions/apply`, { traefik: on }, () => render());
+  });
+  const reset = el("button.ghost.danger", { type: "button", onclick: resetKubernetes }, "Reset Kubernetes…");
+  const settings = el("section.card.k8s-card",
+    el("div.vm-head",
+      el("div.vm-title", el("span.vm-label", "Kubernetes"), el("h2", k.enabled ? "k3s is running" : "Off")),
+      el("div.k8s-actions", el(`span.status.${k.enabled ? "on" : "off"}`, el("i"), k.enabled ? "On" : "Off"), toggle)),
+    el("div.k8s-settings",
+      el("div.k8s-row", el("div", el("strong", "Version"), el("p.small.muted", "A k3s release. New versions upgrade in place; going back needs a reset.")),
+        el("div.k8s-ctl", verSel, verBtn)),
+      el("div.k8s-row", el("div", el("strong", "Traefik ingress"), el("p.small.muted", "k3s's bundled ingress controller. Colima turns it off by default; Rancher Desktop turns it on.")),
+        el("label.switch", traefik, el("span", set.traefik ? "On" : "Off"))),
+      k.enabled ? el("div.k8s-row", el("div", el("strong", "Reset"), el("p.small.muted", "Deletes the cluster and creates an empty one. Containers, images and volumes outside Kubernetes stay.")),
+        reset) : null));
+  const parts = [settings];
+
   if (k.enabled) {
-    if (k.version) card.append(el("pre.log", k.version.trim()));
-    parts.push(el("div.card", el("h2", "Nodes"), el("pre.log", (k.nodes || k.nodesError || "").trim())));
-    const ctx = el("div.card", el("h2", "kubectl context"));
+    const ctx = el("section.card", el("h2", "kubectl on your Mac"));
     if (k.currentContextError) {
       ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config."), fixRow({ id: "kubectx", title: "kubectl", fix: "brew install kubectl", action: "terminal" }));
     } else if (k.currentContext !== k.context) {
@@ -749,9 +937,130 @@ async function renderKubernetes(main) {
     } else {
       ctx.append(el("p", el("span.pill.ok", "ok"), " kubectl uses ", el("code", k.context), "."));
     }
-    parts.push(ctx);
+    parts.push(workloadsCard(), ctx,
+      el("details.card", el("summary", el("strong", "Nodes and version")), el("pre.log", ((k.nodes || k.nodesError || "") + "\n" + (k.version || "")).trim())));
   }
   main.replaceChildren(head, ...parts);
+}
+
+function workloadsCard() {
+  const ns = el("select", { "aria-label": "Namespace" }, el("option", { value: "" }, "All namespaces"));
+  const sys = el("input", { type: "checkbox" });
+  const body = el("div", el("p.muted.small", "Loading…"));
+  const card = el("section.card", el("div.card-head", el("h2", "Workloads"),
+    el("div.toolbar", ns, el("label.check", sys, "Show kube-system"),
+      el("button.ghost.mini", { type: "button", onclick: () => load() }, "Refresh"))), body);
+  let pods = [];
+  const tone = (p) => p.reason === "Terminating" ? "busy"
+    : p.reason ? "fail" : p.phase === "Running" && p.ready.split("/")[0] === p.ready.split("/")[1] ? "ok"
+      : p.phase === "Succeeded" ? "x" : p.phase === "Failed" ? "fail" : "warn";
+  const draw = () => {
+    const shown = pods.filter((p) => (!ns.value || p.namespace === ns.value) && (sys.checked || ns.value === "kube-system" || p.namespace !== "kube-system"));
+    if (!shown.length) { body.replaceChildren(el("p.muted", pods.length ? "Nothing here; kube-system is hidden." : "No pods yet. kubectl apply something and it shows up here.")); return; }
+    body.replaceChildren(el("div.table-wrap", el("table",
+      el("thead", el("tr", el("th", "Pod"), el("th", "Namespace"), el("th", "Status"), el("th", "Ready"), el("th", "Restarts"), el("th", "Age"), el("th"))),
+      shortBody(shown.map((p) => el("tr",
+        el("td", el("strong.mono", p.name), p.owner ? el("div.muted.small", p.owner) : null),
+        el("td.small", p.namespace),
+        el("td", el(`span.pill.${tone(p)}`, p.reason || p.phase)),
+        el("td.small.num", p.ready),
+        el("td.small.num", p.restarts ? el("span.bad-text", String(p.restarts)) : "0"),
+        el("td.small", ago(p.created)),
+        el("td.actions",
+          el("button.ghost.mini", { type: "button", onclick: () => showPodLogs(p) }, "Logs"),
+          el("button.ghost.mini.danger", { type: "button", onclick: () => deletePod(p, load) }, "Delete")))), 25))));
+  };
+  const load = async () => {
+    try { pods = await api("GET", `${P()}/kubernetes/pods`); }
+    catch (e) { body.replaceChildren(el("div.notice.bad", e.message)); return; }
+    const names = [...new Set(pods.map((p) => p.namespace))].sort();
+    const cur = ns.value;
+    ns.replaceChildren(el("option", { value: "" }, "All namespaces"), ...names.map((n) => el("option", { value: n, selected: n === cur }, n)));
+    draw();
+  };
+  ns.addEventListener("change", draw);
+  sys.addEventListener("change", draw);
+  load();
+  return card;
+}
+
+function showPodLogs(p) {
+  const log = el("pre.log");
+  const follow = el("input", { type: "checkbox", checked: true });
+  const prev = el("input", { type: "checkbox" });
+  const lines = [];
+  const start = () => {
+    if (state.logSource) state.logSource.close();
+    lines.length = 0;
+    log.replaceChildren();
+    const src = new EventSource(`${P()}/kubernetes/pods/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/logs?tail=500&follow=${follow.checked ? 1 : 0}&previous=${prev.checked ? 1 : 0}`);
+    state.logSource = src;
+    src.addEventListener("line", (e) => {
+      const l = JSON.parse(e.data);
+      lines.push(l.t);
+      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+      log.append(lineNode(l, ""));
+      if (log.childNodes.length > 5000) log.firstChild.remove();
+      if (atBottom) log.scrollTop = log.scrollHeight;
+    });
+    src.addEventListener("done", () => src.close());
+    src.addEventListener("failed", (e) => { src.close(); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
+  };
+  follow.addEventListener("change", start);
+  prev.addEventListener("change", start);
+  openDrawer(`Logs: ${p.namespace}/${p.name}`,
+    el("div.toolbar", el("label.check", follow, "Follow"), el("label.check", prev, "Previous run (after a crash)"),
+      el("button.ghost.mini", { type: "button", onclick: () => download(`${p.name}.log`, lines.join("\n")) }, "Download")),
+    log);
+  start();
+}
+
+async function deletePod(p, after) {
+  if (!await confirmBox(`Delete pod ${p.name}?`, p.owner ? `${p.owner} starts a new one straight away, so this is a restart.` : "Nothing owns this pod, so it is gone for good.", "Delete", true)) return;
+  try { await api("DELETE", `${P()}/kubernetes/pods/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}`); toast(`Deleting ${p.name}`); setTimeout(after, 800); }
+  catch (e) { toast(e.message, true); }
+}
+
+// ---------- Snapshots ----------
+
+async function renderSnapshots(main) {
+  const p = currentProfile();
+  const running = isRunning();
+  const head = el("div.head", el("div", el("h1", "Snapshots"),
+    el("p.muted", `Save profile ${state.profile} as it is now (VM, images, containers, volumes and settings) and go back to it later.`)));
+  if (!p) { main.replaceChildren(head, notRunningCard()); return; }
+  const name = el("input", { type: "text", placeholder: "Name, e.g. Before upgrading Postgres", maxlength: 80, "aria-label": "Snapshot name" });
+  const take = el("button", { type: "button", disabled: running }, "Save snapshot");
+  take.addEventListener("click", () => runJob("POST", `${P()}/snapshots`, { name: name.value }, () => render()));
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter" && !take.disabled) take.click(); });
+  const stopBtn = el("button.ghost", { type: "button", onclick: () => runJob("POST", `${P()}/actions/stop`, undefined, render) }, `Stop ${state.profile}`);
+  const save = el("section.card",
+    el("h2", "New snapshot"),
+    running ? el("div.notice", el("p", "Snapshots are taken and restored with the VM stopped, so the disks are consistent. Stopping takes a few seconds."), stopBtn) : null,
+    el("div.snap-new", name, take),
+    el("p.small.muted", "Snapshots are APFS clones: saving takes a second, and they only use disk space for what changes afterwards. Kept in ~/Library/Application Support/colima-dashboard/snapshots."));
+  const listCard = el("section.card", el("h2", "Saved"), el("p.muted.small", "Loading…"));
+  main.replaceChildren(head, save, listCard);
+  let list;
+  try { list = await api("GET", `${P()}/snapshots`); } catch (e) { listCard.replaceChildren(el("h2", "Saved"), el("div.notice.bad", e.message)); return; }
+  if (!list.length) { listCard.replaceChildren(el("h2", "Saved"), el("p.muted", "No snapshots yet.")); return; }
+  const restore = async (sn) => {
+    if (!await confirmBox(`Restore "${sn.name}"?`, `Profile ${state.profile} goes back to how it was on ${new Date(sn.created).toLocaleString()}. Anything since then is replaced; the current state is saved first as an automatic snapshot, so you can undo this.`, "Restore", true)) return;
+    runJob("POST", `${P()}/snapshots/${encodeURIComponent(sn.id)}/restore`, undefined, () => render());
+  };
+  const del = async (sn) => {
+    if (!await confirmBox(`Delete "${sn.name}"?`, "The snapshot is removed. The profile is not touched.", "Delete", true)) return;
+    try { await api("DELETE", `${P()}/snapshots/${encodeURIComponent(sn.id)}`); toast("Snapshot deleted"); render(); } catch (e) { toast(e.message, true); }
+  };
+  listCard.replaceChildren(el("h2", "Saved"), el("div.table-wrap", el("table",
+    el("thead", el("tr", el("th", "Name"), el("th", "Saved"), el("th", "Size"), el("th"))),
+    el("tbody", list.map((sn) => el("tr",
+      el("td", el("strong", sn.name), sn.auto ? [" ", el("span.pill.x", "automatic")] : null),
+      el("td.small", new Date(sn.created).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), el("div.muted.small", ago(Date.parse(sn.created) / 1000))),
+      el("td.small.num", bytes(sn.size), el("div.muted.small", "shared with the VM")),
+      el("td.actions",
+        el("button.ghost.mini", { type: "button", disabled: running, title: running ? "Stop the profile first" : "", onclick: () => restore(sn) }, "Restore"),
+        el("button.ghost.mini.danger", { type: "button", onclick: () => del(sn) }, "Delete"))))))));
 }
 
 // ---------- Preferences ----------
@@ -806,8 +1115,34 @@ async function renderPreferences(main) {
     runJob("POST", `/api/profiles/${encodeURIComponent(n)}/actions/start`, {}, () => { state.profile = n; safeSet("profile", n); refreshOverview().then(render); });
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
-  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles,
+  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, alertsCard(),
     el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
+}
+
+// Notifications and the menu bar icon, plus the latest alerts.
+function alertsCard() {
+  const card = el("section.card", el("h2", "Alerts and menu bar"), el("p.muted.small", "Loading…"));
+  api("GET", "/api/alerts").then((a) => {
+    const notify = el("input", { type: "checkbox", checked: a.settings.notify });
+    const menu = el("input", { type: "checkbox", checked: a.settings.menuBar, disabled: !a.menuBarAvailable });
+    const save = async () => {
+      try { await api("POST", "/api/alerts/settings", { notify: notify.checked, menuBar: menu.checked }); toast("Saved"); }
+      catch (e) { toast(e.message, true); }
+    };
+    notify.addEventListener("change", save);
+    menu.addEventListener("change", save);
+    const list = a.alerts.length
+      ? el("ul.alert-list", a.alerts.slice(0, 10).map((x) => el("li",
+        el("span.sev.fail", x.kind === "build" ? "Build" : "Run"),
+        el("div", el("strong", x.title), el("div.small.muted", `${x.body} · ${x.profile} · ${ago(Date.parse(x.time) / 1000)}`)))))
+      : el("p.small.muted", "No alerts since the dashboard started.");
+    card.replaceChildren(el("h2", "Alerts and menu bar"),
+      el("label.check", notify, "Notify me when a test container or a build fails, or a container runs out of memory"),
+      el("label.check", menu, a.menuBarAvailable ? "Show Colima in the menu bar (state, start and stop, recent alerts)" : "Menu bar icon (in release builds only; this is a development build)"),
+      el("h3", "Recent alerts"), list);
+    if (a.unread) api("POST", "/api/alerts/read").catch(() => {});
+  }).catch((e) => card.replaceChildren(el("h2", "Alerts and menu bar"), el("div.notice.bad", e.message)));
+  return card;
 }
 
 async function deleteProfile() {
@@ -969,6 +1304,7 @@ const tabs = {
   images: renderImages,
   volumes: renderVolumes,
   kubernetes: renderKubernetes,
+  snapshots: renderSnapshots,
   preferences: renderPreferences,
   troubleshooting: renderTroubleshooting,
   diagnostics: renderDiagnostics,
@@ -988,6 +1324,7 @@ const NAV_ICONS = {
   diagnostics: ["#b91c1c", "M12 3l9 16H3zM12 10v4M12 17v.5"],
   ports: ["#0e7490", "M4 8h12l-3-3M20 16H8l3 3"],
   runs: ["#15803d", "M4 6h9M4 12h9M4 18h5M14 16l3 3 5-6"],
+  snapshots: ["#0369a1", "M4 7h3l2-3h6l2 3h3v12H4zM12 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"],
   builds: ["#9333ea", "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"],
 };
 function decorateNav() {

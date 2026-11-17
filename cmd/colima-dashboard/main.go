@@ -15,14 +15,18 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/alerts"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/history"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/menubar"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/server"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/snapshot"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 	"github.com/andrewbakercloudscale/colima-dashboard/web"
 )
@@ -185,9 +189,38 @@ func serve(port int, browser, newToken bool) error {
 		rec = &history.Recorder{Store: store, ColimaHome: colimaHome(), Guest: hub.GuestAverage, Logf: log.Printf}
 	}
 
+	// Alerts: a failed test container or build becomes a notification and a line in the menu bar.
+	appDir := filepath.Dir(tokenPath())
+	mb := &menubar.Runner{Dir: filepath.Join(appDir, "menubar"), Logf: log.Printf, Env: []string{
+		"CD_PORT=" + strconv.Itoa(port), "CD_TOKEN=" + token, "CD_URL=" + server.BaseURL(port) + "/?token=" + token,
+	}}
+	center := &alerts.Center{Path: filepath.Join(appDir, "alerts.json"), OnSettings: func(s alerts.Settings) { mb.SetEnabled(s.MenuBar) }}
+	mb.SetEnabled(center.Load().MenuBar)
+	defer mb.SetEnabled(false)
+	if rec != nil {
+		rec.OnRun = func(profile string, run history.Run) {
+			switch run.Outcome {
+			case "fail":
+				center.Add(alerts.Alert{Profile: profile, Kind: "run", Title: run.Job + " failed",
+					Body: fmt.Sprintf("%s exited with code %d after %s", run.Name, run.Exit, (time.Duration(run.Seconds) * time.Second).String())})
+			case "oom":
+				center.Add(alerts.Alert{Profile: profile, Kind: "run", Title: run.Job + " ran out of memory",
+					Body: run.Name + " was killed for memory; give the VM more memory or the container a higher limit"})
+			}
+		}
+		rec.OnBuild = func(profile string, b history.Build) {
+			if b.Status == "Error" {
+				center.Add(alerts.Alert{Profile: profile, Kind: "build", Title: "Build of " + b.Name + " failed", Body: b.Error})
+			}
+		}
+	}
+
 	handler := server.New(server.Options{
 		Port: port, Token: token, Version: version, Updater: upd, Metrics: hub, History: rec,
 		Colima: col, ColimaHome: colimaHome(), Assets: web.Assets,
+		Snapshots: &snapshot.Store{Dir: filepath.Join(filepath.Dir(tokenPath()), "snapshots"), ColimaHome: colimaHome(),
+			Instance: colima.LimaInstance, Clone: snapshot.CloneFile},
+		Alerts: center, MenuBarAvailable: menubar.Available(),
 		// The locked page's button: open the signed-in link in this user's own browser session.
 		OpenBrowser: func() error { return exec.Command("open", server.BaseURL(port)+"/?token="+token).Run() },
 	})

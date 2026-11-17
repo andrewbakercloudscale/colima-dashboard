@@ -3,6 +3,7 @@
 /dist/
 *.test
 *.out
+internal/menubar/menubar.bin
 
 # Local session notes: never published
 CLAUDE.md

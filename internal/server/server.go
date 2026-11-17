@@ -7,7 +7,10 @@
 package server
 
 import (
+	"bytes"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,10 +24,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/alerts"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/history"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/snapshot"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 )
 
@@ -48,7 +53,13 @@ type Options struct {
 	History *history.Recorder
 	// OpenTerminal opens Terminal running a fix's command; nil uses osascript. Tests replace it.
 	OpenTerminal func(cmd string) error
-	Logger       *log.Logger
+	// Snapshots saves and restores stopped profiles; nil turns the snapshot routes off.
+	Snapshots *snapshot.Store
+	// Alerts keeps recent alerts and the notification and menu bar settings; nil turns them off.
+	Alerts *alerts.Center
+	// MenuBarAvailable says whether this build includes the menu bar icon.
+	MenuBarAvailable bool
+	Logger           *log.Logger
 }
 
 // Server is the HTTP handler.
@@ -61,6 +72,8 @@ type Server struct {
 	latestAt   time.Time // when latestTag was fetched; refetched after 6 hours
 	jobs       *Jobs
 	mux        *http.ServeMux
+	shellOnce  sync.Once
+	shells     *shells
 }
 
 // New builds the handler.
@@ -179,7 +192,23 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	s.serveAsset(w, r, "index.html", http.StatusOK)
+	// The terminal (xterm.js) builds its own <style> elements. A fresh nonce per page load lets
+	// exactly those in, without opening style-src to inline styles in general.
+	var nb [16]byte
+	_, _ = rand.Read(nb[:])
+	nonce := base64.StdEncoding.EncodeToString(nb[:])
+	h := w.Header()
+	h.Set("Content-Security-Policy", strings.Replace(h.Get("Content-Security-Policy"), "style-src 'self';", "style-src 'self' 'nonce-"+nonce+"';", 1))
+	b, err := fs.ReadFile(s.opt.Assets, "index.html")
+	if err != nil {
+		http.Error(w, "asset missing", http.StatusInternalServerError)
+		return
+	}
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(bytes.Replace(b, []byte("{{STYLE_NONCE}}"), []byte(nonce), 1))
+	}
 }
 
 func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, name string, status int) {

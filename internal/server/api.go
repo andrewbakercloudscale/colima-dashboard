@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -41,6 +42,18 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/profiles/{p}/vmlogs", s.auth(s.apiVMLogs))
 	m.HandleFunc("GET /api/profiles/{p}/kubernetes", s.auth(s.apiKubernetes))
 	m.HandleFunc("GET /api/profiles/{p}/kubernetes/services", s.auth(s.apiK8sServices))
+	m.HandleFunc("GET /api/profiles/{p}/kubernetes/pods", s.auth(s.apiK8sPods))
+	m.HandleFunc("GET /api/profiles/{p}/kubernetes/pods/{ns}/{pod}/logs", s.auth(s.apiK8sPodLogs))
+	m.HandleFunc("DELETE /api/profiles/{p}/kubernetes/pods/{ns}/{pod}", s.auth(s.apiK8sDeletePod))
+	m.HandleFunc("GET /api/k3s/versions", s.auth(s.apiK3sVersions))
+	m.HandleFunc("GET /api/alerts", s.auth(s.apiAlerts))
+	m.HandleFunc("POST /api/alerts/settings", s.auth(s.apiAlertSettings))
+	m.HandleFunc("POST /api/alerts/read", s.auth(s.apiAlertsRead))
+	m.HandleFunc("GET /api/menubar", s.auth(s.apiMenuBar))
+	m.HandleFunc("GET /api/profiles/{p}/snapshots", s.auth(s.apiSnapshots))
+	m.HandleFunc("POST /api/profiles/{p}/snapshots", s.auth(s.apiSnapshotTake))
+	m.HandleFunc("POST /api/profiles/{p}/snapshots/{id}/restore", s.auth(s.apiSnapshotRestore))
+	m.HandleFunc("DELETE /api/profiles/{p}/snapshots/{id}", s.auth(s.apiSnapshotDelete))
 
 	m.HandleFunc("GET /api/profiles/{p}/containers", s.auth(s.apiContainers))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}", s.auth(s.apiInspect))
@@ -48,6 +61,14 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/logs", s.auth(s.apiLogs))
 	m.HandleFunc("POST /api/profiles/{p}/containers/{id}/{action}", s.auth(s.apiContainerAction))
 	m.HandleFunc("DELETE /api/profiles/{p}/containers/{id}", s.auth(s.apiRemoveContainer))
+	m.HandleFunc("POST /api/profiles/{p}/containers/{id}/shell", s.auth(s.apiShellOpen))
+	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/files", s.auth(s.apiFiles))
+	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/file", s.auth(s.apiFileView))
+	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/download", s.auth(s.apiFileDownload))
+	m.HandleFunc("GET /api/shells/{sid}/stream", s.auth(s.apiShellStream))
+	m.HandleFunc("POST /api/shells/{sid}/input", s.auth(s.apiShellInput))
+	m.HandleFunc("POST /api/shells/{sid}/resize", s.auth(s.apiShellResize))
+	m.HandleFunc("DELETE /api/shells/{sid}", s.auth(s.apiShellClose))
 
 	m.HandleFunc("GET /api/profiles/{p}/images", s.auth(s.apiImages))
 	m.HandleFunc("POST /api/profiles/{p}/images/pull", s.auth(s.apiPull))
@@ -114,6 +135,17 @@ func (s *Server) apiProfileAction(w http.ResponseWriter, r *http.Request) {
 		if err := readJSON(r, opts); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
+		}
+		if opts.Traefik != nil {
+			ks, err := colima.ReadKubeSettings(s.opt.ColimaHome, p)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("reading the profile's settings: %w", err))
+				return
+			}
+			if err != nil {
+				ks.K3sArgs = []string{"--disable=traefik"} // colima's default
+			}
+			opts.K3sArgs, opts.SetK3sArgs = ks.WithTraefik(*opts.Traefik), true
 		}
 		if _, err := opts.Args(); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -564,6 +596,9 @@ func (s *Server) apiKubernetes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"running": true, "enabled": st.Kubernetes, "context": colima.KubeContext(p)}
+	if ks, err := colima.ReadKubeSettings(s.opt.ColimaHome, p); err == nil {
+		out["settings"] = map[string]any{"version": ks.Version, "traefik": ks.TraefikOn(), "k3sArgs": ks.K3sArgs}
+	}
 	if cur, err := kubeCurrentContext(ctx); err == nil {
 		out["currentContext"] = cur
 	} else {

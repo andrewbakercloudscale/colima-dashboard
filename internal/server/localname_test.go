@@ -26,6 +26,9 @@ func TestHasLocalName(t *testing.T) {
 			t.Errorf("%q: got %v", body, got)
 		}
 	}
+	if err := os.WriteFile(HostsFile, []byte("127.0.0.1 colima.localhost\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if got := BaseURL(7766); got != "http://colima.localhost:7766" {
 		t.Errorf("BaseURL: %s", got)
 	}
