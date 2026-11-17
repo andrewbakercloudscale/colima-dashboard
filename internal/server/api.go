@@ -31,6 +31,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/colima/prune", s.auth(s.apiColimaPrune))
 	m.HandleFunc("GET /api/diagnostics", s.auth(s.apiDiagnostics))
 	s.updateRoutes(m)
+	s.terminalRoutes(m)
 
 	m.HandleFunc("GET /api/profiles/{p}/status", s.auth(s.apiStatus))
 	m.HandleFunc("POST /api/profiles/{p}/actions/{action}", s.auth(s.apiProfileAction))

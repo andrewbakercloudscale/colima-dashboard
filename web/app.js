@@ -117,13 +117,51 @@ function confirmBox(title, body, okText, danger, typed) {
   });
 }
 
-function copyRow(cmd) {
+function copyBtn(cmd) {
   const btn = el("button.ghost.mini", { type: "button" }, "Copy");
   btn.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(cmd); toast("Copied"); } catch { toast("Copy failed: select the text instead", true); }
   });
-  return el("div.copy", el("code", cmd), btn);
+  return btn;
 }
+
+// A fix with its button. Commands open in Terminal (the server works the command out again
+// from the check id); start and restart use the page's own progress view.
+function fixRow(c) {
+  if (!c.fix) return null;
+  const label = c.action === "start" ? `Start ${state.profile}` : c.action === "restart" ? `Restart ${state.profile}` : "Run in Terminal";
+  const run = el(c.confirm ? "button.danger.mini" : "button.mini", { type: "button" }, label);
+  run.addEventListener("click", async () => {
+    if (c.confirm && !await confirmBox(`${c.title}: fix it?`,
+      el("div", el("p", c.confirm), el("p.muted.small", "Runs in Terminal: "), el("pre.log", c.fix)), "Run it", true)) return;
+    if (c.action === "start") return startProfile();
+    if (c.action === "restart") return runJob("POST", `${P()}/actions/restart`, undefined, () => render());
+    await openFix(run, c.id);
+  });
+  return el("div.copy", el("code", c.fix), run, copyBtn(c.fix));
+}
+
+async function openFix(btn, id) {
+  btn.disabled = true;
+  try {
+    await api("POST", "/api/fix", { profile: state.profile, id });
+    state.fixPending = true;
+    toast("Opened in Terminal. The checks run again when you come back here.");
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Back from Terminal after a fix: check again.
+window.addEventListener("focus", () => {
+  if (!state.fixPending) return;
+  state.fixPending = false;
+  if (["general", "diagnostics", "kubernetes"].includes(state.tab)) render(); else refreshDiagBadge();
+});
+
+function needsFix(c) { return (c.state === "fail" || c.state === "warn") && c.id !== "vm"; }
 
 // ---------- jobs (long-running operations with streamed output) ----------
 
@@ -350,9 +388,20 @@ async function renderGeneral(main) {
     vm.append(el("p.muted", "This profile does not exist yet. Start creates it with Colima's defaults."));
   }
   cards.append(vm);
-  main.replaceChildren(head, ...(boot ? [boot] : [welcomeCard()]), cards);
+  const attention = el("div.attention");
+  main.replaceChildren(head, attention, ...(boot ? [boot] : [welcomeCard()]), cards);
+  api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`).then((list) => {
+    setDiagBadge(list);
+    const todo = list.filter(needsFix);
+    if (!todo.length) return;
+    attention.replaceChildren(el("div.card", el("h2", todo.length === 1 ? "1 thing to fix" : `${todo.length} things to fix`),
+      el("table", el("tbody", todo.map((c) => el("tr",
+        el("td", el(`span.pill.${c.state}`, c.state)),
+        el("td", el("strong", c.title), el("div.muted.small", c.detail), fixRow(c))))))));
+  }).catch(() => { /* Diagnostics shows the error */ });
   if (state.overview?.colimaError) {
-    main.prepend(el("div.notice.bad", "colima is not available: ", state.overview.colimaError, ". Install it with brew install colima docker."));
+    main.prepend(el("div.notice.bad", el("p", "colima is not available: ", state.overview.colimaError, "."),
+      fixRow({ id: "colima", title: "Install colima", fix: "brew install colima docker", action: "terminal" })));
   }
   if (!running || (boot && !tracker.done)) return;
 
@@ -687,9 +736,9 @@ async function renderKubernetes(main) {
     parts.push(el("div.card", el("h2", "Nodes"), el("pre.log", (k.nodes || k.nodesError || "").trim())));
     const ctx = el("div.card", el("h2", "kubectl context"));
     if (k.currentContextError) {
-      ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config."), copyRow("brew install kubectl"));
+      ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config."), fixRow({ id: "kubectx", title: "kubectl", fix: "brew install kubectl", action: "terminal" }));
     } else if (k.currentContext !== k.context) {
-      ctx.append(el("p", "kubectl points at ", el("code", k.currentContext), ", not this profile."), copyRow(`kubectl config use-context ${k.context}`));
+      ctx.append(el("p", "kubectl points at ", el("code", k.currentContext), ", not this profile."), fixRow({ id: "kubectx", title: "kubectl context", fix: `kubectl config use-context ${k.context}`, action: "terminal" }));
     } else {
       ctx.append(el("p", el("span.pill.ok", "ok"), " kubectl uses ", el("code", k.context), "."));
     }
@@ -801,7 +850,7 @@ async function renderDiagnostics(main) {
   setDiagBadge(list);
   checks.replaceChildren(el("table", el("tbody", list.map((c) => el("tr",
     el("td", el(`span.pill.${c.state}`, c.state)),
-    el("td", el("strong", c.title), el("div.muted.small", c.detail), c.fix ? copyRow(c.fix) : null))))));
+    el("td", el("strong", c.title), el("div.muted.small", c.detail), fixRow(c)))))));
 }
 
 function setDiagBadge(list) {
@@ -1170,7 +1219,11 @@ function welcomeCard() {
     else if (d.newer && d.canUpdate) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima Dashboard ${d.latest.version} is out. `,
       el("button.mini", { type: "button", onclick: installDashboard }, `Update to ${d.latest.version}`), " ", el("a", { href: d.latest.url, target: "_blank", rel: "noopener noreferrer" }, "What changed")));
     else if (d.newer) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima Dashboard ${d.latest.version} is out: ${d.reason}.`));
-    else if (!d.canUpdate && d.reason) rows.push(el("p.upd.muted", `Colima Dashboard ${d.current}: ${d.reason}.`));
+    else if (d.current === "dev") {
+      const rb = el("button.mini", { type: "button" }, "Rebuild from source");
+      rb.addEventListener("click", () => openFix(rb, "rebuild"));
+      rows.push(el("p.upd", el("span.pill.x", "dev"), " A development build of Colima Dashboard. ", rb));
+    } else if (!d.canUpdate && d.reason) rows.push(el("p.upd.muted", `Colima Dashboard ${d.current}: ${d.reason}.`));
     else if (d.latest) rows.push(el("p.upd", el("span.pill.ok", "latest"), ` Colima Dashboard ${d.current} is up to date.`));
     const c = u.colima || {};
     if (c.newer) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima ${c.latest.version} is out (you have ${c.current}). `,

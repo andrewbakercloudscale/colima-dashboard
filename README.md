@@ -37,7 +37,8 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Kubernetes on or off, services list and a reset button.
 - Preferences for CPU, memory, disk, runtime, VM type, mount type, Rosetta and new profiles.
 - Diagnostics that find the usual Colima problems (missing buildx or credential helper, a
-  Rancher Desktop or Docker Desktop still installed, low disk) and show the fix.
+  Rancher Desktop or Docker Desktop still installed, low disk), each with a button that runs
+  the fix in Terminal.
 - Colour-coded VM, container and job logs.
 - Update checks for Colima and for the dashboard, which updates itself.
 
