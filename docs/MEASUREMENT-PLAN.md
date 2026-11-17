@@ -40,7 +40,9 @@ Rules for every run:
 
 1. **Out of the box.** Each tool with its own defaults (Rancher: Kubernetes on, its default memory
    and CPUs; Colima: 2 CPUs, 2 GiB, no Kubernetes). This is what a new user actually gets.
-2. **Matched.** Same CPUs, memory and disk, Kubernetes off, Docker engine on both. This isolates
+2. **Matched.** Same CPUs, memory and disk, Kubernetes off, Docker engine on both: 4 CPUs, 8 GiB,
+   100 GiB (`CPUS=4 MEMORY_GB=8`). Rancher's defaults already equal Colima's 2 CPUs and 2 GiB, so
+   a larger matched VM adds information instead of repeating the out of the box run. This isolates
    the cost of the tool itself (Electron app, extra services) from the size of the VM.
 3. **Matched plus Kubernetes.** As 2 with Kubernetes on (k3s in both), since that is Rancher's
    headline feature.
@@ -78,9 +80,9 @@ from Rancher's documented features, each checked by hand in the reinstalled app,
 - Port forwarding UI, Kubernetes version picker, Kubernetes reset, dashboard
 - Image scanning (Trivy), extensions, snapshots, diagnostics, troubleshooting reset
 - Preferences: CPUs, memory, VM type, mounts, Rosetta, proxy, admin access, PATH management
-- Docker context and kubectl context handling (Colima on this Mac currently has **no** `colima`
-  Docker context: `docker context ls` shows only `default` on `/var/run/docker.sock`, a gap the UI
-  diagnostics should catch)
+- Docker context and kubectl context handling (Colima creates its `colima` Docker context on start
+  and removes it on stop, so a stopped Colima leaves `docker` pointing at nothing useful; the UI
+  diagnostics check the active context)
 - Updates, uninstall, leftovers
 
 Each gap is marked: closed by Colima UI v1, planned for v2, or left alone on purpose (with why).
