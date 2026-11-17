@@ -25,6 +25,8 @@ const (
 	pointEvery  = 5 * time.Minute
 	dfEvery     = 15 * time.Minute
 	buildsEvery = 2 * time.Minute
+	// buildsFallback: read builds this often even when BuildKit's cache looks unchanged.
+	buildsFallback = 30 * time.Minute
 )
 
 // GuestAverages, when set, returns the VM's own CPU % and memory use averaged since a time, if
@@ -93,14 +95,8 @@ func (r *Recorder) scan(ctx context.Context) {
 		if !e.IsDir() || strings.HasPrefix(name, "_") || !colima.ValidProfile(name) {
 			continue
 		}
-		sock := filepath.Join(r.ColimaHome, name, "docker.sock")
-		if _, err := os.Stat(sock); err != nil {
-			continue
-		}
-		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		err := docker.New(sock).Ping(pctx)
-		cancel()
-		if err == nil {
+		// From files alone: asking the engine every 30 s would wake the VM for nothing.
+		if colima.Running(r.ColimaHome, name) {
 			running[name] = true
 		}
 	}
@@ -137,6 +133,10 @@ func (r *Recorder) watch(ctx context.Context, profile string) {
 	go r.events(ctx, profile, dc)
 	go r.points(ctx, profile, dc)
 	r.PollBuilds(ctx, profile)
+	// Reading builds runs docker buildx on the Mac. Only do it when BuildKit's cache shows a
+	// build has run since (one in-process API call), or every half hour to be sure.
+	stamp, _ := dc.BuildCacheStamp(ctx)
+	last := time.Now()
 	t := time.NewTicker(buildsEvery)
 	defer t.Stop()
 	for {
@@ -144,7 +144,11 @@ func (r *Recorder) watch(ctx context.Context, profile string) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		now, err := dc.BuildCacheStamp(ctx)
+		if err != nil || now != stamp || time.Since(last) > buildsFallback {
 			r.PollBuilds(ctx, profile)
+			stamp, last = now, time.Now()
 		}
 	}
 }
@@ -376,21 +380,25 @@ type hostCPU struct {
 	dir   string
 	lastS float64
 	lastT time.Time
+	pids  []string // kept until ps cannot find one of them
 }
 
 func (h *hostCPU) sample() (cpu float64, mem uint64, ok bool) {
-	var pids []string
-	if b, err := os.ReadFile(filepath.Join(h.dir, "ha.pid")); err == nil {
-		pids = append(pids, strings.TrimSpace(string(b)))
+	if h.pids == nil {
+		if b, err := os.ReadFile(filepath.Join(h.dir, "ha.pid")); err == nil {
+			h.pids = append(h.pids, strings.TrimSpace(string(b)))
+		}
+		if out, err := exec.Command("pgrep", "-f", "com.apple.Virtualization.VirtualMachine").Output(); err == nil {
+			h.pids = append(h.pids, strings.Fields(string(out))...)
+		}
 	}
-	if out, err := exec.Command("pgrep", "-f", "com.apple.Virtualization.VirtualMachine").Output(); err == nil {
-		pids = append(pids, strings.Fields(string(out))...)
-	}
+	pids := h.pids
 	if len(pids) == 0 {
 		return 0, 0, false
 	}
 	out, err := exec.Command("ps", "-o", "time=", "-p", strings.Join(pids, ",")).Output()
 	if err != nil {
+		h.pids = nil
 		return 0, 0, false
 	}
 	var secs float64
