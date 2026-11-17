@@ -374,30 +374,37 @@ async function renderGeneral(main) {
     // While it starts, the engine is not there yet: show the progress, not errors.
     head.lastChild.replaceChildren(el("button", { type: "button", disabled: true }, "Starting…"));
   }
-  const vm = el("div.card", el("h2", `Profile ${state.profile}`));
+  // The VM at a glance: name and state on top, then one tile per setting.
+  const tone = !p ? "none" : running ? "on" : /ing$/i.test(p.status || "") ? "busy" : "off";
+  const vm = el("section.card.vm-card",
+    el("div.vm-head",
+      el("div.vm-title", el("span.vm-label", "Profile"), el("h2", state.profile)),
+      el(`span.status.${tone}`, el("i"), p ? p.status : "Not created")));
   if (p) {
-    vm.append(el("dl.kv",
-      el("dt", "State"), el("dd", el(`span.pill.${running ? "running" : "x"}`, p.status)),
-      el("dt", "Runtime"), el("dd", p.runtime || "–"),
-      el("dt", "Architecture"), el("dd", p.arch || "–"),
-      el("dt", "CPUs"), el("dd", String(p.cpus || "–")),
-      el("dt", "Memory"), el("dd", gib(p.memory)),
-      el("dt", "Disk"), el("dd", gib(p.disk)),
-      p.address ? [el("dt", "Address"), el("dd", p.address)] : null));
+    const tile = (label, value) => el("div.tile", el("span.tile-label", label), el("span.tile-value", value));
+    vm.append(el("div.tiles",
+      tile("Runtime", p.runtime || "–"),
+      tile("Architecture", p.arch || "–"),
+      tile("CPUs", String(p.cpus || "–")),
+      tile("Memory", gib(p.memory)),
+      tile("Disk", gib(p.disk)),
+      p.address ? tile("Address", p.address) : null));
   } else {
-    vm.append(el("p.muted", "This profile does not exist yet. Start creates it with Colima's defaults."));
+    vm.append(el("p.muted.vm-empty", "This profile does not exist yet. Start creates it with Colima's defaults."));
   }
   cards.append(vm);
   const attention = el("div.attention");
-  main.replaceChildren(head, attention, ...(boot ? [boot] : [welcomeCard()]), cards);
+  main.replaceChildren(head, attention, cards, ...(boot ? [boot] : [welcomeCard()]));
   api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`).then((list) => {
     setDiagBadge(list);
     const todo = list.filter(needsFix);
     if (!todo.length) return;
-    attention.replaceChildren(el("div.card", el("h2", todo.length === 1 ? "1 thing to fix" : `${todo.length} things to fix`),
-      el("table", el("tbody", todo.map((c) => el("tr",
-        el("td", el(`span.pill.${c.state}`, c.state)),
-        el("td", el("strong", c.title), el("div.muted.small", c.detail), fixRow(c))))))));
+    attention.replaceChildren(el("section.card.fix-card",
+      el("div.fix-head", el("h2", todo.length === 1 ? "1 thing to fix" : `${todo.length} things to fix`),
+        el("a.small", { href: "#diagnostics" }, "All checks")),
+      el("ul.fix-list", todo.map((c) => el(`li.fix-item.${c.state}`,
+        el("div.fix-title", el("strong", c.title), el(`span.sev.${c.state}`, c.state === "fail" ? "Problem" : "Warning")),
+        el("p.fix-detail", c.detail), fixRow(c))))));
   }).catch(() => { /* Diagnostics shows the error */ });
   if (state.overview?.colimaError) {
     main.prepend(el("div.notice.bad", el("p", "colima is not available: ", state.overview.colimaError, "."),
@@ -1211,31 +1218,34 @@ function welcomeCard() {
     try { state.updates = await api("POST", "/api/updates/settings", { auto: auto.checked }); toast(auto.checked ? "Updates are automatic" : "Automatic updates off"); }
     catch (e) { auto.checked = !auto.checked; toast(e.message, true); }
   });
+  // One row per thing that can update: a status pill, one sentence, and its actions on the right.
+  const row = (pill, tone, text, ...acts) => el("div.upd", el(`span.pill.${tone}`, pill), el("span.upd-text", text),
+    acts.filter(Boolean).length ? el("span.upd-acts", acts.filter(Boolean)) : null);
+  const link = (href, label) => el("a.small", { href, target: "_blank", rel: "noopener noreferrer" }, label);
   const rows = [];
-  if (!u) rows.push(el("p.muted.small", "Checking for updates…"));
+  if (!u) rows.push(el("div.upd", el("span.muted.small", "Checking for updates…")));
   else {
     const d = u.dashboard || {};
-    if (d.phase === "downloading") rows.push(el("p.upd", el("span.pill.busy", "updating"), ` Downloading Colima Dashboard ${d.latest?.version}…`));
-    else if (d.phase === "installed") rows.push(el("p.upd", el("span.pill.ok", "installed"), ` Version ${d.latest?.version} is installed; the dashboard restarts when no task is running.`));
-    else if (d.phase === "failed") rows.push(el("p.upd", el("span.pill.fail", "failed"), ` Update failed: ${d.error}`));
-    else if (d.newer && d.canUpdate) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima Dashboard ${d.latest.version} is out. `,
-      el("button.mini", { type: "button", onclick: installDashboard }, `Update to ${d.latest.version}`), " ", el("a", { href: d.latest.url, target: "_blank", rel: "noopener noreferrer" }, "What changed")));
-    else if (d.newer) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima Dashboard ${d.latest.version} is out: ${d.reason}.`));
+    if (d.phase === "downloading") rows.push(row("updating", "busy", `Downloading Colima Dashboard ${d.latest?.version}…`));
+    else if (d.phase === "installed") rows.push(row("installed", "ok", `Version ${d.latest?.version} is installed; the dashboard restarts when no task is running.`));
+    else if (d.phase === "failed") rows.push(row("failed", "fail", `Update failed: ${d.error}`));
+    else if (d.newer && d.canUpdate) rows.push(row("new", "warn", `Colima Dashboard ${d.latest.version} is out.`,
+      link(d.latest.url, "What changed"), el("button.mini", { type: "button", onclick: installDashboard }, `Update to ${d.latest.version}`)));
+    else if (d.newer) rows.push(row("new", "warn", `Colima Dashboard ${d.latest.version} is out: ${d.reason}.`));
     else if (d.current === "dev") {
       const rb = el("button.mini", { type: "button" }, "Rebuild from source");
       rb.addEventListener("click", () => openFix(rb, "rebuild"));
-      rows.push(el("p.upd", el("span.pill.x", "dev"), " A development build of Colima Dashboard. ", rb));
-    } else if (!d.canUpdate && d.reason) rows.push(el("p.upd.muted", `Colima Dashboard ${d.current}: ${d.reason}.`));
-    else if (d.latest) rows.push(el("p.upd", el("span.pill.ok", "latest"), ` Colima Dashboard ${d.current} is up to date.`));
+      rows.push(row("dev", "x", "A development build of Colima Dashboard.", rb));
+    } else if (!d.canUpdate && d.reason) rows.push(row("manual", "x", `Colima Dashboard ${d.current}: ${d.reason}.`));
+    else if (d.latest) rows.push(row("latest", "ok", `Colima Dashboard ${d.current} is up to date.`));
     const c = u.colima || {};
-    if (c.newer) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima ${c.latest.version} is out (you have ${c.current}). `,
-      c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : el("span.muted", c.reason), " ",
-      el("a", { href: c.latest.url, target: "_blank", rel: "noopener noreferrer" }, "Release notes")));
-    else if (c.latest) rows.push(el("p.upd", el("span.pill.ok", "latest"), ` Colima ${c.current} is up to date.`));
-    if (u.checkError) rows.push(el("p.small.muted", `Could not check everything: ${u.checkError}`));
-    if (u.checkedAt) rows.push(el("p.small.muted", `Checked ${ago(Date.parse(u.checkedAt) / 1000)}. `,
-      el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now")));
+    if (c.newer) rows.push(row("new", "warn", `Colima ${c.latest.version} is out (you have ${c.current}).${c.canUpdate ? "" : " " + c.reason}`,
+      link(c.latest.url, "Release notes"), c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : null));
+    else if (c.latest) rows.push(row("latest", "ok", `Colima ${c.current} is up to date.`));
+    if (u.checkError) rows.push(el("div.upd", el("span.small.muted", `Could not check everything: ${u.checkError}`)));
   }
+  const checked = u?.checkedAt ? el("div.upd-head-r", el("span.small.muted", `Checked ${ago(Date.parse(u.checkedAt) / 1000)}`),
+    el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now")) : null;
   const news = (u?.colimaNews || []).map((r, i) => el("details", { open: i === 0 && u.colima?.newer },
     el("summary", r.name || r.tag, el("span.muted", new Date(r.published).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }))),
     r.notes ? el("p", r.notes) : null,
@@ -1250,7 +1260,7 @@ function welcomeCard() {
           el("a", { href: "https://github.com/andrewbakercloudscale/colima-dashboard", target: "_blank", rel: "noopener noreferrer" }, "Colima Dashboard on GitHub"),
           el("a", { href: "https://github.com/andrewbakercloudscale/colima-dashboard/issues", target: "_blank", rel: "noopener noreferrer" }, "Report a problem"))),
       el("div")),
-    el("div", rows),
+    el("div.upd-list", el("div.upd-head", el("h3", "Updates"), checked), rows),
     news.length ? [el("h3", "What's new in Colima"), el("div.news", news)] : null);
 }
 
