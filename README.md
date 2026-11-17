@@ -20,7 +20,7 @@ Dashboard gives Colima the everyday screens of Rancher Desktop and keeps Colima'
 | Installed size | 11 MB dashboard + 10 MB Colima + 108 MB Lima | 1.5 GB app |
 | Kubernetes at first start | Off until you tick it | On by default (k3s), first start took 197 s on our Mac |
 | Default VM | 2 CPU, 2 GiB | 2 CPU, 6 GB (on a 32 GB Mac) |
-| Stop time | being measured now; figures go in the blog post | about 35 s, every run |
+| Stop time | about 3 s | about 35 s, every run |
 | Leftovers after removal | `~/.colima` only | 59 GB of VM data, `~/.rd/bin` and PATH lines in shell profiles on our Mac |
 | Admin password | Never | Asked for by some settings |
 | Runs as | One Go binary and your browser | Electron app with its own bundled tools |
