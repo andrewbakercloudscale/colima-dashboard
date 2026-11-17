@@ -24,6 +24,7 @@ import (
 type Snapshot struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name"`
+	Note    string    `json:"note,omitempty"` // what it is for, in the user's words
 	Profile string    `json:"profile"`
 	Created time.Time `json:"created"`
 	// Size is the total logical size of the files; clones share blocks, so the disk space
@@ -124,14 +125,14 @@ func (s *Store) List(profile string) ([]Snapshot, error) {
 }
 
 // Take saves the profile's current files. The profile must be stopped (the caller checks).
-func (s *Store) Take(ctx context.Context, w io.Writer, profile, name string, auto bool) (*Snapshot, error) {
+func (s *Store) Take(ctx context.Context, w io.Writer, profile, name, note string, auto bool) (*Snapshot, error) {
 	src, err := s.sources(profile)
 	if err != nil {
 		return nil, err
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])
-	sn := &Snapshot{ID: time.Now().Format("20060102-150405") + "-" + hex.EncodeToString(b[:]), Name: name, Profile: profile, Created: time.Now(), Auto: auto}
+	sn := &Snapshot{ID: time.Now().Format("20060102-150405") + "-" + hex.EncodeToString(b[:]), Name: name, Note: note, Profile: profile, Created: time.Now(), Auto: auto}
 	dir := filepath.Join(s.Dir, profile, sn.ID)
 	ok := false
 	defer func() {
@@ -175,7 +176,7 @@ func (s *Store) Restore(ctx context.Context, w io.Writer, profile, id string) er
 		return err
 	}
 	fmt.Fprintln(w, "saving the current state first, so this restore can be undone")
-	if _, err := s.Take(ctx, w, profile, "Before restoring "+sn.Name, true); err != nil {
+	if _, err := s.Take(ctx, w, profile, "Before restoring "+sn.Name, "", true); err != nil {
 		return fmt.Errorf("saving the current state: %w", err)
 	}
 	live, err := s.sources(profile)

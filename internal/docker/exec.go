@@ -181,6 +181,16 @@ func (c *Client) ListDir(ctx context.Context, container, dir string) (entries []
 		}
 		return nil, false, errors.New(msg)
 	}
+	entries, truncated = ParseListing(out)
+	return entries, truncated, nil
+}
+
+// ListScript is the shell script ListDir runs; callers elsewhere (a volume inside the VM) run it
+// the same way, with the folder as $1, and read its output with ParseListing.
+const ListScript = listScript
+
+// ParseListing reads ListScript's output.
+func ParseListing(out []byte) (entries []Entry, truncated bool) {
 	entries = []Entry{}
 	for _, line := range strings.Split(string(out), "\n") {
 		if line == "..." {
@@ -195,7 +205,7 @@ func (c *Client) ListDir(ctx context.Context, container, dir string) (entries []
 		mod, _ := strconv.ParseInt(f[2], 10, 64)
 		entries = append(entries, Entry{Kind: f[0], Size: size, Modified: mod, Name: f[3]})
 	}
-	return entries, truncated, nil
+	return entries, truncated
 }
 
 // Archive returns the tar stream Docker makes of a path inside a container (file or folder).

@@ -362,6 +362,15 @@ func (c *Client) KubectlStream(ctx context.Context, profile string, w io.Writer,
 	return c.Runner.Stream(ctx, w, c.Bin, full...)
 }
 
+// SSHCommand returns a command that runs args inside the profile's VM. colima quotes each
+// argument for the remote shell, so args are passed through unchanged.
+func (c *Client) SSHCommand(ctx context.Context, profile string, args ...string) (*exec.Cmd, error) {
+	if !ValidProfile(profile) {
+		return nil, fmt.Errorf("invalid profile name %q", profile)
+	}
+	return exec.CommandContext(ctx, c.Bin, append([]string{"ssh", "-p", profile, "--"}, args...)...), nil
+}
+
 func (c *Client) claim(profile, op string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

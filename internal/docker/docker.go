@@ -216,11 +216,17 @@ func (c *Client) Inspect(ctx context.Context, id string) (map[string]any, error)
 	return out, c.getJSON(ctx, "/containers/"+url.PathEscape(id)+"/json", nil, &out)
 }
 
-// Stats is one sample of a container's CPU and memory.
+// Stats is one sample of a container's CPU, memory, network and disk use. The byte counters
+// are totals since the container started; the page turns two samples into rates.
 type Stats struct {
 	CPUPercent  float64 `json:"cpuPercent"`
 	MemoryBytes uint64  `json:"memoryBytes"`
 	MemoryLimit uint64  `json:"memoryLimit"`
+	NetRx       uint64  `json:"netRx"`
+	NetTx       uint64  `json:"netTx"`
+	BlockRead   uint64  `json:"blockRead"`
+	BlockWrite  uint64  `json:"blockWrite"`
+	PIDs        uint64  `json:"pids"`
 }
 
 type rawStats struct {
@@ -231,6 +237,19 @@ type rawStats struct {
 		Limit uint64            `json:"limit"`
 		Stats map[string]uint64 `json:"stats"`
 	} `json:"memory_stats"`
+	Networks map[string]struct {
+		RxBytes uint64 `json:"rx_bytes"`
+		TxBytes uint64 `json:"tx_bytes"`
+	} `json:"networks"`
+	BlkioStats struct {
+		IOServiceBytesRecursive []struct {
+			Op    string `json:"op"`
+			Value uint64 `json:"value"`
+		} `json:"io_service_bytes_recursive"`
+	} `json:"blkio_stats"`
+	PidsStats struct {
+		Current uint64 `json:"current"`
+	} `json:"pids_stats"`
 }
 
 type cpuStats struct {
@@ -254,7 +273,19 @@ func (c *Client) Stats(ctx context.Context, id string) (*Stats, error) {
 }
 
 func computeStats(r rawStats) *Stats {
-	s := &Stats{MemoryLimit: r.MemoryStats.Limit}
+	s := &Stats{MemoryLimit: r.MemoryStats.Limit, PIDs: r.PidsStats.Current}
+	for _, n := range r.Networks {
+		s.NetRx += n.RxBytes
+		s.NetTx += n.TxBytes
+	}
+	for _, b := range r.BlkioStats.IOServiceBytesRecursive {
+		switch strings.ToLower(b.Op) {
+		case "read":
+			s.BlockRead += b.Value
+		case "write":
+			s.BlockWrite += b.Value
+		}
+	}
 	// Same as the docker CLI: page cache (inactive_file) is not counted as used.
 	used := r.MemoryStats.Usage
 	if v, ok := r.MemoryStats.Stats["inactive_file"]; ok && v < used {
@@ -271,6 +302,30 @@ func computeStats(r rawStats) *Stats {
 		s.CPUPercent = cpuDelta / sysDelta * cpus * 100
 	}
 	return s
+}
+
+// Top lists the processes running in a container, as `docker top` does.
+type Top struct {
+	Titles    []string   `json:"titles"`
+	Processes [][]string `json:"processes"`
+}
+
+// Top runs `ps` in the container's namespace through the engine (no shell needed in the image).
+func (c *Client) Top(ctx context.Context, id string) (*Top, error) {
+	if !ValidRef(id) {
+		return nil, fmt.Errorf("invalid container id %q", id)
+	}
+	var t struct {
+		Titles    []string   `json:"Titles"`
+		Processes [][]string `json:"Processes"`
+	}
+	if err := c.getJSON(ctx, "/containers/"+url.PathEscape(id)+"/top", url.Values{"ps_args": {"-eo pid,user,pcpu,pmem,rss,etime,args"}}, &t); err != nil {
+		// BusyBox ps and some engines refuse ps_args; fall back to the default columns.
+		if err2 := c.getJSON(ctx, "/containers/"+url.PathEscape(id)+"/top", nil, &t); err2 != nil {
+			return nil, err
+		}
+	}
+	return &Top{Titles: t.Titles, Processes: t.Processes}, nil
 }
 
 // Logs streams a container's logs to w as lines of text, demultiplexing stdout and stderr.
@@ -488,6 +543,15 @@ func (c *Client) Volumes(ctx context.Context) ([]Volume, error) {
 }
 
 // RemoveVolume removes a volume.
+// Volume returns one volume, with its mount point inside the VM.
+func (c *Client) Volume(ctx context.Context, name string) (*Volume, error) {
+	if !ValidRef(name) {
+		return nil, fmt.Errorf("invalid volume name %q", name)
+	}
+	var v Volume
+	return &v, c.getJSON(ctx, "/volumes/"+url.PathEscape(name), nil, &v)
+}
+
 func (c *Client) RemoveVolume(ctx context.Context, name string) error {
 	if !ValidRef(name) {
 		return fmt.Errorf("invalid volume name %q", name)

@@ -75,3 +75,29 @@ func (s *Server) apiMenuBar(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// GET /api/login-item -> {available, enabled}
+func (s *Server) apiLoginItem(w http.ResponseWriter, r *http.Request) {
+	li := s.opt.LoginItem
+	writeJSON(w, http.StatusOK, map[string]bool{"available": li != nil, "enabled": li != nil && li.Enabled()})
+}
+
+// POST /api/login-item {enabled}
+func (s *Server) apiSetLoginItem(w http.ResponseWriter, r *http.Request) {
+	if s.opt.LoginItem == nil {
+		writeError(w, http.StatusNotFound, errors.New("start at login is not available in this build"))
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.opt.LoginItem.SetEnabled(body.Enabled); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"available": true, "enabled": s.opt.LoginItem.Enabled()})
+}

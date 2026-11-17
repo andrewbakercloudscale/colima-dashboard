@@ -33,7 +33,10 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 
 - Start, stop and restart profiles with a progress view instead of a wall of log lines.
 - Containers, images, volumes and port forwards in tables, with start, stop, remove and logs.
-- A shell into any running container in the page, and a file browser to view and download its files.
+- A shell into any running container in the page, and a file browser to view and download its
+  files; volumes can be browsed too, even with no container using them.
+- Live stats per container (CPU, memory, network and disk I/O, processes).
+- Build an image from a folder on your Mac, push it, or scan it with Trivy.
 - Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history.
 - Runs and tests and Builds: pass rates, flaky and slowing tests, build times and cache hits.
 - Kubernetes: on or off, k3s version picker, Traefik on or off, workloads with logs, reset.
@@ -43,7 +46,10 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Preferences for CPU, memory, disk, runtime, VM type, mount type, Rosetta and new profiles.
 - Diagnostics that find the usual Colima problems (missing buildx or credential helper, a
   Rancher Desktop or Docker Desktop still installed, low disk), each with a button that runs
-  the fix in Terminal.
+  the fix in Terminal. Checks you do not care about can be muted.
+- Behind a company proxy that inspects TLS (Zscaler and the like), one click copies your Mac's
+  certificate authorities into the VM, so pulls stop failing with x509 errors.
+- Start at login, and a light, dark or automatic theme.
 - Colour-coded VM, container and job logs.
 - Update checks for Colima and for the dashboard, which updates itself.
 

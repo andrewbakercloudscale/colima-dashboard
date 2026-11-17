@@ -59,7 +59,7 @@ func (s *Server) apiSnapshotTake(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req struct{ Name string }
+	var req struct{ Name, Note string }
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -72,8 +72,13 @@ func (s *Server) apiSnapshotTake(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("name is longer than 80 characters"))
 		return
 	}
+	note := strings.TrimSpace(req.Note)
+	if utf8.RuneCountInString(note) > 500 {
+		writeError(w, http.StatusBadRequest, errors.New("description is longer than 500 characters"))
+		return
+	}
 	s.snapshotJob(w, p, "snapshot", func(ctx context.Context, j *Job) error {
-		_, err := s.opt.Snapshots.Take(ctx, j, p, name, false)
+		_, err := s.opt.Snapshots.Take(ctx, j, p, name, note, false)
 		return err
 	})
 }

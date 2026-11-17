@@ -24,7 +24,8 @@ type Check struct {
 	Detail string `json:"detail"`
 	Fix    string `json:"fix,omitempty"` // the command that fixes it
 	// Action is how the page's button runs Fix: "terminal" opens Terminal with it (see
-	// terminal.go), "start" and "restart" use the page's own progress view.
+	// terminal.go), "start", "restart" and "certs" use the page's own progress view (for
+	// "certs" Fix describes what happens rather than being a command).
 	Action string `json:"action,omitempty"`
 	// Confirm, when set, is what the page asks before a fix that deletes or edits something.
 	Confirm string `json:"confirm,omitempty"`
@@ -87,6 +88,11 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 
 	// 4. docker CLI, context, credential helper, plugins
 	checks = append(checks, s.dockerCLIChecks(ctx, profile, stErr == nil)...)
+
+	// 4b. TLS from inside the VM (a company proxy's certificate)
+	if stErr == nil {
+		add(s.certCheck(ctx, profile))
+	}
 
 	// 5. Kubernetes context
 	if stErr == nil && st.Kubernetes {

@@ -220,7 +220,7 @@ func serve(port int, browser, newToken bool) error {
 		Colima: col, ColimaHome: colimaHome(), Assets: web.Assets,
 		Snapshots: &snapshot.Store{Dir: filepath.Join(filepath.Dir(tokenPath()), "snapshots"), ColimaHome: colimaHome(),
 			Instance: colima.LimaInstance, Clone: snapshot.CloneFile},
-		Alerts: center, MenuBarAvailable: menubar.Available(),
+		Alerts: center, MenuBarAvailable: menubar.Available(), LoginItem: loginItem{port: port},
 		// The locked page's button: open the signed-in link in this user's own browser session.
 		OpenBrowser: func() error { return exec.Command("open", server.BaseURL(port)+"/?token="+token).Run() },
 	})
