@@ -1,4 +1,4 @@
-// Locked page: ask colima-ui to open the signed-in link, then reload once this browser has the cookie.
+// Locked page: ask colima-dashboard to open the signed-in link, then reload once this browser has the cookie.
 "use strict";
 const btn = document.getElementById("unlock");
 const msg = document.getElementById("unlockmsg");
@@ -21,9 +21,9 @@ btn.addEventListener("click", async () => {
       await new Promise((res) => setTimeout(res, 1000));
       if (await signedIn()) { location.replace("/"); return; }
     }
-    msg.textContent = "Still locked here: the link opened in your default browser. Use that tab, or run colima-ui open.";
+    msg.textContent = "Still locked here: the link opened in your default browser. Use that tab, or run colima-dashboard open.";
   } catch (e) {
-    msg.textContent = `Could not open it: ${e.message}. Run colima-ui open in a terminal.`;
+    msg.textContent = `Could not open it: ${e.message}. Run colima-dashboard open in a terminal.`;
   } finally {
     btn.disabled = false;
   }

@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/andrewbakercloudscale/colima-ui/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 )
 
 // Check is one diagnostics row: what was checked, whether it passed, and the fix when it did not.
@@ -212,7 +212,7 @@ func (s *Server) latestCheck(ctx context.Context, current string) Check {
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/abiosoft/colima/releases/latest", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "colima-ui")
+	req.Header.Set("User-Agent", "colima-dashboard")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		c.Detail = "could not reach GitHub"

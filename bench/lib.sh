@@ -69,7 +69,7 @@ function csv_row() {
 function tool_pids() {
     local tool="$1" pattern
     case "${tool}" in
-    colima) pattern='^ *[0-9]+ ([^ ]*/colima( |$)|[^ ]*/colima-ui( |$)|[^ ]*limactl .*\.colima/|ssh: .*\.colima/)' ;;
+    colima) pattern='^ *[0-9]+ ([^ ]*/colima( |$)|[^ ]*/colima-dashboard( |$)|[^ ]*limactl .*\.colima/|ssh: .*\.colima/)' ;;
     rancher) pattern='^ *[0-9]+ (/Applications/Rancher Desktop\.app/|[^ ]*limactl .*rancher-desktop/lima|ssh: .*rancher-desktop/)' ;;
     none) return 0 ;;
     *) return 1 ;;

@@ -1,4 +1,4 @@
-// Command colima-ui serves a local web UI for Colima on http://127.0.0.1:7766.
+// Command colima-dashboard serves a local web UI for Colima on http://127.0.0.1:7766.
 package main
 
 import (
@@ -19,9 +19,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/andrewbakercloudscale/colima-ui/internal/colima"
-	"github.com/andrewbakercloudscale/colima-ui/internal/server"
-	"github.com/andrewbakercloudscale/colima-ui/web"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/server"
+	"github.com/andrewbakercloudscale/colima-dashboard/web"
 )
 
 // version is set at build time with -ldflags "-X main.version=..."
@@ -30,15 +30,15 @@ var version = "dev"
 const defaultPort = 7766
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Colima UI %s: a local web UI for Colima.
+	fmt.Fprintf(os.Stderr, `Colima Dashboard %s: a local web UI for Colima.
 
 usage:
-  colima-ui [--port N] [--no-browser] [--new-token]
+  colima-dashboard [--port N] [--no-browser] [--new-token]
                                         start the UI and open it in the browser
-  colima-ui open [--port N]             open the running UI in the browser
-  colima-ui install-service [--port N]  start the UI at login (LaunchAgent)
-  colima-ui uninstall-service           remove the LaunchAgent
-  colima-ui version
+  colima-dashboard open [--port N]             open the running UI in the browser
+  colima-dashboard install-service [--port N]  start the UI at login (LaunchAgent)
+  colima-dashboard uninstall-service           remove the LaunchAgent
+  colima-dashboard version
 
 The UI listens on 127.0.0.1 only. The sign-in token is kept in %s
 (this user only) and reused across restarts; --new-token replaces it and signs out every browser.
@@ -53,7 +53,7 @@ func main() {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
 	}
-	fl := flag.NewFlagSet("colima-ui", flag.ExitOnError)
+	fl := flag.NewFlagSet("colima-dashboard", flag.ExitOnError)
 	fl.Usage = usage
 	port := fl.Int("port", defaultPort, "port on 127.0.0.1")
 	noBrowser := fl.Bool("no-browser", false, "do not open the browser")
@@ -74,7 +74,7 @@ func main() {
 	case "uninstall-service":
 		err = uninstallService()
 	case "version":
-		fmt.Println("colima-ui", version)
+		fmt.Println("colima-dashboard", version)
 	case "help":
 		usage()
 	default:
@@ -87,7 +87,7 @@ func main() {
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "colima-ui:", err)
+	fmt.Fprintln(os.Stderr, "colima-dashboard:", err)
 	os.Exit(1)
 }
 
@@ -115,7 +115,7 @@ func tokenPath() string {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	return filepath.Join(dir, "colima-ui", "session")
+	return filepath.Join(dir, "colima-dashboard", "session")
 }
 
 func serve(port int, browser, newToken bool) error {
@@ -123,7 +123,7 @@ func serve(port int, browser, newToken bool) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
-			return fmt.Errorf("port %d is already in use; is colima-ui already running? Try 'colima-ui open', or pass --port", port)
+			return fmt.Errorf("port %d is already in use; is colima-dashboard already running? Try 'colima-dashboard open', or pass --port", port)
 		}
 		return err
 	}
@@ -148,7 +148,7 @@ func serve(port int, browser, newToken bool) error {
 		IdleTimeout:       2 * time.Minute,
 	}
 	url := fmt.Sprintf("http://%s/?token=%s", addr, token)
-	fmt.Printf("Colima UI %s on http://%s\nOpen: %s\n", version, addr, url)
+	fmt.Printf("Colima Dashboard %s on http://%s\nOpen: %s\n", version, addr, url)
 	if browser {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
@@ -202,7 +202,7 @@ func saveToken(token string) error {
 func openRunning(port int) error {
 	b, err := os.ReadFile(tokenPath())
 	if err != nil {
-		return fmt.Errorf("colima-ui does not seem to be running (no %s)", tokenPath())
+		return fmt.Errorf("colima-dashboard does not seem to be running (no %s)", tokenPath())
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/?token=%s", port, strings.TrimSpace(string(b)))
 	return exec.Command("open", url).Run()

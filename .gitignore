@@ -1,5 +1,5 @@
 # Build output
-/colima-ui
+/colima-dashboard
 /dist/
 *.test
 *.out

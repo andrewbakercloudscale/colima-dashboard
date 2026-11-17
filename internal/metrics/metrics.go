@@ -2,7 +2,7 @@
 // what is happening inside the VM, and what each container uses.
 //
 // Sampling only runs while someone is looking. A collector starts on the first request for a
-// profile and stops after five minutes without one, so an idle Colima UI costs nothing. History
+// profile and stops after five minutes without one, so an idle Colima Dashboard costs nothing. History
 // (up to an hour) is kept in memory across those pauses and shows the gap honestly.
 package metrics
 
@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/andrewbakercloudscale/colima-ui/internal/colima"
-	"github.com/andrewbakercloudscale/colima-ui/internal/docker"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
 )
 
 // Interval between samples.

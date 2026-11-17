@@ -1,6 +1,6 @@
 # Measurement plan: Colima vs Rancher Desktop on a MacBook
 
-Status: agreed with the owner, 17 Nov 2026. Feeds the blog post and the gap list Colima UI sets out to fill.
+Status: agreed with the owner, 17 Nov 2026. Feeds the blog post and the gap list Colima Dashboard sets out to fill.
 
 ## The question the post answers
 
@@ -34,7 +34,7 @@ Rules for every run:
   plus one hour baseline.
 - The old 59 GiB Rancher data is moved aside now and deleted at the end, after the owner confirms.
 - The post is drafted as Markdown in `docs/blog/`; the repo is created private under
-  `andrewbakercloudscale/colima-ui` and made public when the post goes live.
+  `andrewbakercloudscale/colima-dashboard` and made public when the post goes live.
 
 ## Configurations
 
@@ -63,17 +63,17 @@ Rules for every run:
 | M10 | Bind mount I/O | Unpack a large source tree and run a file-heavy step on a host folder mounted in a container | both |
 | M11 | Kubernetes ready | Kubernetes on: start to `kubectl get nodes` Ready; idle memory with it on | both |
 | M12 | Battery drain | One hour idle on battery, lid open, screen on, percentage before and after | both |
-| M13 | UI cost | Memory and CPU of the GUI alone: Rancher's Electron processes vs `colima-ui` | both |
+| M13 | UI cost | Memory and CPU of the GUI alone: Rancher's Electron processes vs `colima-dashboard` | both |
 | M14 | Leftovers | What remains on disk after uninstall | Rancher (59 GiB found on this Mac) |
 
 Process sets measured (by name, refined once Rancher is installed):
 - Rancher Desktop: `Rancher Desktop` and its Helper processes, `limactl` host agent, the VZ VM
   process, `rdctl`/`docker-credential` helpers if present.
-- Colima: `colima` daemon, `limactl` host agent, the VZ VM process, and `colima-ui` once built.
+- Colima: `colima` daemon, `limactl` host agent, the VZ VM process, and `colima-dashboard` once built.
 
 ## Gap analysis (the second half of the post)
 
-A feature table, three columns: Rancher Desktop 1.25, Colima 0.10.3 CLI, Colima UI v1. Rows come
+A feature table, three columns: Rancher Desktop 1.25, Colima 0.10.3 CLI, Colima Dashboard v1. Rows come
 from Rancher's documented features, each checked by hand in the reinstalled app, not from memory:
 - GUI and menu bar status, start and stop, live progress
 - Containers, images, volumes screens; logs; exec; Compose grouping
@@ -85,7 +85,7 @@ from Rancher's documented features, each checked by hand in the reinstalled app,
   diagnostics check the active context)
 - Updates, uninstall, leftovers
 
-Each gap is marked: closed by Colima UI v1, planned for v2, or left alone on purpose (with why).
+Each gap is marked: closed by Colima Dashboard v1, planned for v2, or left alone on purpose (with why).
 
 ## Keeping this Mac safe while Rancher is back
 
@@ -106,14 +106,14 @@ Colima again, and report what Rancher left behind (M14).
 
 1. `bench/` scripts (bash, one per metric group) and `bench/results/*.csv` with the raw samples.
 2. `docs/blog/results.md`: tables and charts from the CSVs.
-3. `docs/blog/draft.md`: the post, with the gap table and the Colima UI section.
-4. Colima UI v1 built against the gaps, with screenshots for the post.
-5. The public GitHub repo under `andrewbakercloudscale/colima-ui` when the owner says so.
+3. `docs/blog/draft.md`: the post, with the gap table and the Colima Dashboard section.
+4. Colima Dashboard v1 built against the gaps, with screenshots for the post.
+5. The public GitHub repo under `andrewbakercloudscale/colima-dashboard` when the owner says so.
 
 ## Order of work
 
 1. Write and dry-run the bench scripts against Colima (no Rancher needed yet).
 2. Back up, reinstall Rancher, run every Rancher metric, capture the gap table by hand.
 3. Uninstall Rancher, restore, rerun the Colima metrics under the same conditions.
-4. Build Colima UI v1 (see `docs/PLAN.md`), measure M13 for it.
+4. Build Colima Dashboard v1 (see `docs/PLAN.md`), measure M13 for it.
 5. Write the results page and the draft post.

@@ -1,4 +1,4 @@
-# Colima UI
+# Colima Dashboard
 
 A lightweight, local web UI for [Colima](https://github.com/abiosoft/colima) on macOS: the everyday
 screens of a desktop container app (status, containers, images, volumes, Kubernetes, preferences and
@@ -11,7 +11,7 @@ troubleshooting) in one small binary, opened in your browser.
 - Talks to Colima through its CLI and to Docker through Colima's socket. Changes nothing until you
   press a button, and asks in the page before anything destructive.
 
-Colima UI is an independent project. It is not affiliated with or endorsed by Colima, Rancher
+Colima Dashboard is an independent project. It is not affiliated with or endorsed by Colima, Rancher
 Desktop or SUSE.
 
 ## Licence

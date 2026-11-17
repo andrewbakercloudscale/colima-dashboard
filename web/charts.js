@@ -1,4 +1,4 @@
-// Small SVG charts for Colima UI: ring gauge, donut, area/line chart with a hover crosshair,
+// Small SVG charts for Colima Dashboard: ring gauge, donut, area/line chart with a hover crosshair,
 // and sparkline. No library: the page stays one binary with no third-party code.
 "use strict";
 
