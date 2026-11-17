@@ -159,6 +159,54 @@ function followJob(job, onDone) {
 }
 $("#jobclose").addEventListener("click", () => { $("#jobpanel").hidden = true; });
 
+// The output panel: drag its top edge (or focus the grip and use the arrow keys) to resize;
+// Minimise folds it to its title bar. Both are remembered in this browser.
+(function jobPanelSizing() {
+  const panel = $("#jobpanel"), grip = $("#jobgrip"), minBtn = $("#jobmin");
+  const MIN = 120;
+  const clamp = (h) => Math.round(Math.max(MIN, Math.min(window.innerHeight - 24, h)));
+  const setH = (h, save) => {
+    const v = clamp(h);
+    panel.style.setProperty("--job-h", v + "px");
+    if (save) safeSet("jobH", String(v));
+  };
+  const setMin = (on) => {
+    panel.classList.toggle("min", on);
+    minBtn.textContent = on ? "Expand" : "Minimise";
+    minBtn.setAttribute("aria-expanded", String(!on));
+    safeSet("jobMin", on ? "1" : "0");
+  };
+  const saved = Number(safeGet("jobH"));
+  if (saved > 0) setH(saved, false);
+  if (safeGet("jobMin") === "1") setMin(true);
+  minBtn.addEventListener("click", () => setMin(!panel.classList.contains("min")));
+  grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    panel.classList.add("resizing");
+    const startY = e.clientY, startH = panel.getBoundingClientRect().height;
+    const move = (ev) => setH(startH + (startY - ev.clientY), false);
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      panel.classList.remove("resizing");
+      setH(panel.getBoundingClientRect().height, true);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  });
+  grip.addEventListener("dblclick", () => setH(window.innerHeight * 0.45, true));
+  grip.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 120 : 40;
+    const h = panel.getBoundingClientRect().height;
+    if (e.key === "ArrowUp") { setH(h + step, true); e.preventDefault(); }
+    else if (e.key === "ArrowDown") { setH(h - step, true); e.preventDefault(); }
+  });
+  window.addEventListener("resize", () => { const h = Number(safeGet("jobH")); if (h > 0) setH(h, false); });
+})();
+
 async function runJob(method, path, body, onDone) {
   try {
     const job = await api(method, path, body);

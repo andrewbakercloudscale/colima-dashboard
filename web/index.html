@@ -34,9 +34,11 @@
 </div>
 
 <section id="jobpanel" class="jobpanel" hidden aria-label="Running task">
+  <div id="jobgrip" class="jobgrip" role="separator" aria-orientation="horizontal" aria-label="Resize output (drag, or use the arrow keys)" tabindex="0"></div>
   <header>
     <span id="jobtitle"></span>
     <span id="jobstate" class="pill"></span>
+    <button type="button" id="jobmin" class="ghost" aria-expanded="true">Minimise</button>
     <button type="button" id="jobclose" class="ghost" aria-label="Close output">Close</button>
   </header>
   <pre id="joblog" class="log"></pre>
