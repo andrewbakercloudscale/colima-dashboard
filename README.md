@@ -4,7 +4,19 @@ A lightweight, local web UI for [Colima](https://github.com/abiosoft/colima) on 
 screens of a desktop container app (status, containers, images, volumes, Kubernetes, preferences and
 troubleshooting) in one small binary, opened in your browser.
 
-**Status:** planning. See [docs/PLAN.md](docs/PLAN.md) for the version 1 features.
+**Status:** version 1 in progress, not released. See [docs/PLAN.md](docs/PLAN.md).
+
+## Run it
+
+```sh
+go build -o colima-dashboard ./cmd/colima-dashboard
+./colima-dashboard            # opens http://127.0.0.1:7766 signed in
+./colima-dashboard open       # sign a browser in again
+./colima-dashboard install-service   # start at login
+```
+
+Screens: General, Monitor (live graphs per VM and per container), Containers, Images, Volumes,
+Kubernetes, Preferences and Troubleshooting.
 
 - Runs at `http://127.0.0.1:7766`, on this Mac only.
 - One Go binary with the page built in; no Electron, no Node, no runtime to install.
