@@ -43,7 +43,7 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Update checks for Colima and for the dashboard, which updates itself.
 
 **When to stay on Rancher Desktop:** you need Windows or Linux, a Kubernetes version picker,
-extensions, image scanning, or settings your IT team locks down centrally.
+extensions, snapshots, or settings your IT team locks down centrally.
 
 ## Screenshots
 

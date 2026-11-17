@@ -17,3 +17,5 @@ docs/HANDOVER.md
 
 # Bench scratch (raw results under bench/results are kept)
 bench/tmp/
+docs/blog/wp-state.json
+docs/blog/post.html
