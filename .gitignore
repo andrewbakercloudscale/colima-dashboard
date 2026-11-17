@@ -10,3 +10,9 @@ docs/HANDOVER.md
 
 .DS_Store
 .playwright-mcp/
+
+# Tool state
+.omc/
+
+# Bench scratch (raw results under bench/results are kept)
+bench/tmp/
