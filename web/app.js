@@ -1,4 +1,4 @@
-// Colima UI page. Plain JavaScript, no build step. Everything from the API is put on the page
+// Colima Dashboard page. Plain JavaScript, no build step. Everything from the API is put on the page
 // with textContent (never innerHTML), so container names, logs and labels cannot inject markup.
 "use strict";
 
@@ -200,7 +200,7 @@ async function refreshOverview() {
     const key = `${state.profile}:${currentProfile()?.status}`;
     if (state.lastKey && state.lastKey !== key && $("#modal").hidden) render();
     state.lastKey = key;
-    $("#versions").textContent = `Colima UI ${ov.version}` + (ov.colimaVersion ? ` · colima ${ov.colimaVersion}` : "");
+    $("#versions").textContent = `Colima Dashboard ${ov.version}` + (ov.colimaVersion ? ` · colima ${ov.colimaVersion}` : "");
   } catch (e) {
     $("#vmstate").replaceChildren(el("span.pill.fail", "error"));
   }
@@ -219,8 +219,8 @@ function renderVMState() {
   box.replaceChildren(el(`span.pill.${cls || "x"}`, p.busy ? `${p.busy}…` : p.status));
 }
 
-function safeGet(k) { try { return localStorage.getItem("colima-ui:" + k); } catch { return null; } }
-function safeSet(k, v) { try { localStorage.setItem("colima-ui:" + k, v); } catch { /* private mode */ } }
+function safeGet(k) { try { return localStorage.getItem("colima-dashboard:" + k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem("colima-dashboard:" + k, v); } catch { /* private mode */ } }
 
 $("#profile").addEventListener("change", (e) => {
   state.profile = e.target.value;

@@ -1,3 +1,3 @@
-module github.com/andrewbakercloudscale/colima-ui
+module github.com/andrewbakercloudscale/colima-dashboard
 
 go 1.27.0

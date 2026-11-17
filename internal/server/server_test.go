@@ -10,7 +10,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/andrewbakercloudscale/colima-ui/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 )
 
 type fakeRunner struct{ out map[string]string }

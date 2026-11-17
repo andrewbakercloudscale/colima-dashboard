@@ -10,7 +10,7 @@ import (
 	"strconv"
 )
 
-const serviceLabel = "io.github.colima-ui"
+const serviceLabel = "io.github.colima-dashboard"
 
 func plistPath() string {
 	home, _ := os.UserHomeDir()
@@ -33,7 +33,7 @@ func installService(port int) error {
 		return err
 	}
 	home, _ := os.UserHomeDir()
-	logPath := filepath.Join(home, "Library", "Logs", "colima-ui.log")
+	logPath := filepath.Join(home, "Library", "Logs", "colima-dashboard.log")
 	plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -65,7 +65,7 @@ func installService(port int) error {
 	if out, err := exec.Command("launchctl", "bootstrap", domain, p).CombinedOutput(); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %v: %s", err, bytes.TrimSpace(out))
 	}
-	fmt.Printf("Installed %s\nColima UI now starts at login on port %d. Open it with: colima-ui open\nLog: %s\n", p, port, logPath)
+	fmt.Printf("Installed %s\nColima Dashboard now starts at login on port %d. Open it with: colima-dashboard open\nLog: %s\n", p, port, logPath)
 	return nil
 }
 
@@ -75,6 +75,6 @@ func uninstallService() error {
 	if err := os.Remove(plistPath()); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	fmt.Println("Removed the Colima UI LaunchAgent.")
+	fmt.Println("Removed the Colima Dashboard LaunchAgent.")
 	return nil
 }

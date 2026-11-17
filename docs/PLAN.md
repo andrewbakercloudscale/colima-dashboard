@@ -1,4 +1,4 @@
-# Colima UI: version 1 plan
+# Colima Dashboard: version 1 plan
 
 A small, local, web-based front end for [Colima](https://github.com/abiosoft/colima), giving a MacBook
 the day-to-day screens people used Rancher Desktop for, without an Electron app running in the
@@ -24,10 +24,10 @@ Not goals for version 1: Windows or Linux, a menu bar app, extensions, multi-use
   7000 (macOS AirPlay), 3000, 8000, 8080, 9000 (Portainer), 6463 to 6472 (Discord) and 8740 (the
   AWS Cloud Risk Review console).
 - `--port` changes it. If the port is taken, exit with a clear message; do not pick another silently.
-- `colima-ui` starts the server and opens the browser with a one-time token in the URL;
+- `colima-dashboard` starts the server and opens the browser with a one-time token in the URL;
   `--no-browser` for launchd.
-- `colima-ui install-service` / `uninstall-service`: a LaunchAgent so it starts at login
-  (`~/Library/LaunchAgents/io.github.colima-ui.plist`, RunAtLoad, no KeepAlive).
+- `colima-dashboard install-service` / `uninstall-service`: a LaunchAgent so it starts at login
+  (`~/Library/LaunchAgents/io.github.colima-dashboard.plist`, RunAtLoad, no KeepAlive).
 
 ## Version 1 features
 
@@ -89,7 +89,7 @@ Each maps to a Rancher Desktop screen people use most.
 ## Architecture
 
 ```
-browser ──HTTP + SSE──> colima-ui (Go, 127.0.0.1:7766)
+browser ──HTTP + SSE──> colima-dashboard (Go, 127.0.0.1:7766)
                           ├─ Docker Engine API over the profile's socket
                           │    ~/.colima/<profile>/docker.sock
                           └─ colima CLI (exec, --json where offered)
@@ -103,7 +103,7 @@ browser ──HTTP + SSE──> colima-ui (Go, 127.0.0.1:7766)
 - **Live output:** Server-Sent Events for logs, pulls and colima start and stop output.
 - **Colima calls:** `exec.CommandContext` with argument lists, never a shell string; profile names
   validated against `^[a-zA-Z0-9_-]+$`.
-- **Layout:** `cmd/colima-ui/main.go`, `internal/server` (HTTP, auth), `internal/docker` (socket
+- **Layout:** `cmd/colima-dashboard/main.go`, `internal/server` (HTTP, auth), `internal/docker` (socket
   client), `internal/colima` (CLI wrapper), `web/` (embedded assets).
 
 ## Security
@@ -123,13 +123,13 @@ to localhost. So:
 
 - Unit tests for the Docker client and the colima wrapper against recorded responses (no VM needed).
 - Handler tests for the auth, Host and Origin checks.
-- An integration test, skipped unless `COLIMA_UI_IT=1`, that runs against a real Colima profile.
+- An integration test, skipped unless `COLIMA_DASHBOARD_IT=1`, that runs against a real Colima profile.
 - Manual check in the browser on a stopped and a running profile before each release.
 
 ## Blog numbers to measure
 
 For the post on lightweight containers on a MacBook, measure on the same Mac, same workload:
-- Idle memory and CPU of Rancher Desktop (app plus VM) against Colima plus Colima UI.
+- Idle memory and CPU of Rancher Desktop (app plus VM) against Colima plus Colima Dashboard.
 - Install size, cold start time to a working `docker run hello-world`.
 - Battery drain over an hour idle, if practical.
 Rancher Desktop is no longer installed here (its settings folders remain); reinstall it temporarily

@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/andrewbakercloudscale/colima-ui/internal/colima"
-	"github.com/andrewbakercloudscale/colima-ui/internal/docker"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
 )
 
 func (s *Server) routes() {

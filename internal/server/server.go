@@ -1,4 +1,4 @@
-// Package server serves the Colima UI page and its JSON API on 127.0.0.1 only.
+// Package server serves the Colima Dashboard page and its JSON API on 127.0.0.1 only.
 //
 // Security model (docs/PLAN.md): the Docker socket is root in the VM and any web page the user
 // visits can send requests to localhost, so every request must pass a Host check (DNS rebinding),
@@ -21,13 +21,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/andrewbakercloudscale/colima-ui/internal/colima"
-	"github.com/andrewbakercloudscale/colima-ui/internal/docker"
-	"github.com/andrewbakercloudscale/colima-ui/internal/metrics"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
 )
 
 // CookieName holds the session token in the browser.
-const CookieName = "colima_ui_session"
+const CookieName = "colima_dashboard_session"
 
 // Options configure a Server.
 type Options struct {
@@ -38,7 +38,7 @@ type Options struct {
 	ColimaHome string // ~/.colima unless COLIMA_HOME is set
 	Assets     fs.FS  // the embedded web/ directory
 	Metrics    *metrics.Hub
-	// OpenBrowser opens the signed-in link in the browser of the user running colima-ui.
+	// OpenBrowser opens the signed-in link in the browser of the user running colima-dashboard.
 	OpenBrowser func() error
 	Logger      *log.Logger
 }
@@ -55,7 +55,7 @@ type Server struct {
 // New builds the handler.
 func New(opt Options) *Server {
 	if opt.Logger == nil {
-		opt.Logger = log.New(os.Stderr, "colima-ui ", log.LstdFlags)
+		opt.Logger = log.New(os.Stderr, "colima-dashboard ", log.LstdFlags)
 	}
 	if opt.Metrics == nil {
 		opt.Metrics = metrics.NewHub(opt.Colima.Bin, opt.ColimaHome)
@@ -133,7 +133,7 @@ func (s *Server) authed(r *http.Request) bool {
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.authed(r) {
-			writeError(w, http.StatusUnauthorized, errors.New("not signed in: open the link colima-ui printed when it started, or run `colima-ui open`"))
+			writeError(w, http.StatusUnauthorized, errors.New("not signed in: open the link colima-dashboard printed when it started, or run `colima-dashboard open`"))
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -277,9 +277,9 @@ func (e *sse) ping() error {
 // Started reports the time the process started, for the About line.
 var Started = time.Now()
 
-// handleUnlock serves the locked page's "Open Colima UI" button. It never hands the token to the
-// caller: it opens the signed-in link in the browser of the user who runs colima-ui, the same as
-// `colima-ui open`. Another macOS user, or a page on another site (refused by the Origin and
+// handleUnlock serves the locked page's "Open Colima Dashboard" button. It never hands the token to the
+// caller: it opens the signed-in link in the browser of the user who runs colima-dashboard, the same as
+// `colima-dashboard open`. Another macOS user, or a page on another site (refused by the Origin and
 // Sec-Fetch-Site checks), gets nothing. Rate limited so it cannot be used to flood tabs.
 func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	if s.opt.OpenBrowser == nil {
