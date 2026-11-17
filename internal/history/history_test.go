@@ -120,6 +120,14 @@ func TestDiskForecast(t *testing.T) {
 	if f == nil || !f.Reliable || f.Days < 47 || f.Days > 49 {
 		t.Fatalf("forecast: %+v", f)
 	}
+	// an hour in which an image pull added 3 GiB: no forecast yet
+	short := []Point{}
+	for m := 0; m <= 60; m += 5 {
+		short = append(short, Point{T: t0.Add(time.Duration(m) * time.Minute), DiskMac: uint64(10<<30 + m/20*(1<<30)), DiskSize: 100 << 30})
+	}
+	if f := DiskForecast(short); f == nil || f.Reliable || f.Days != -1 || f.PerDay != 0 {
+		t.Fatalf("short forecast: %+v", f)
+	}
 }
 
 func TestParseBuilds(t *testing.T) {

@@ -501,9 +501,7 @@ func readBuilds(ctx context.Context, sock string) ([]Build, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "buildx", "history", "ls", "--format", "json")
-	cmd.Env = append(os.Environ(), "DOCKER_HOST=unix://"+sock)
-	out, err := cmd.Output()
+	out, err := buildxCmd(ctx, bin, sock, "history", "ls", "--format", "json").Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && strings.Contains(string(ee.Stderr), "unknown command") {
@@ -517,6 +515,28 @@ func readBuilds(ctx context.Context, sock string) ([]Build, error) {
 	return parseBuilds(out), nil
 }
 
+// buildxCmd runs docker buildx against the profile's engine. It goes through Colima's docker
+// context when there is one ("colima", or "colima-<profile>"): buildx keeps each build's name
+// (the image or folder) in local state filed under the builder, and that builder is named after
+// the context. Through a bare DOCKER_HOST the builder is "default" and every name comes back empty.
+func buildxCmd(ctx context.Context, bin, sock string, args ...string) *exec.Cmd {
+	name := contextName(filepath.Base(filepath.Dir(sock)))
+	if exec.CommandContext(ctx, bin, "context", "inspect", name).Run() == nil {
+		return exec.CommandContext(ctx, bin, append([]string{"--context", name, "buildx"}, args...)...)
+	}
+	cmd := exec.CommandContext(ctx, bin, append([]string{"buildx"}, args...)...)
+	cmd.Env = append(os.Environ(), "DOCKER_HOST=unix://"+sock)
+	return cmd
+}
+
+// contextName is the docker context Colima creates for a profile.
+func contextName(profile string) string {
+	if profile == "default" || profile == "" {
+		return "colima"
+	}
+	return "colima-" + profile
+}
+
 // buildError asks BuildKit why a build failed: the failing step and its message, or "" when
 // buildx cannot say.
 func buildError(ctx context.Context, sock, ref string) string {
@@ -526,9 +546,7 @@ func buildError(ctx context.Context, sock, ref string) string {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "buildx", "history", "inspect", ref, "--format", "json")
-	cmd.Env = append(os.Environ(), "DOCKER_HOST=unix://"+sock)
-	out, err := cmd.Output()
+	out, err := buildxCmd(ctx, bin, sock, "history", "inspect", ref, "--format", "json").Output()
 	if err != nil {
 		return ""
 	}

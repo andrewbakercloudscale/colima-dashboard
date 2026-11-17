@@ -11,3 +11,11 @@ func TestParseBuildError(t *testing.T) {
 		t.Fatal("no error expected")
 	}
 }
+
+func TestContextName(t *testing.T) {
+	for in, want := range map[string]string{"default": "colima", "": "colima", "bench": "colima-bench"} {
+		if got := contextName(in); got != want {
+			t.Errorf("contextName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
