@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/history"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/server"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 	"github.com/andrewbakercloudscale/colima-dashboard/web"
@@ -175,8 +177,16 @@ func serve(port int, browser, newToken bool) error {
 	}
 	upd.Load()
 
+	hub := metrics.NewHub(bin, colimaHome())
+	var rec *history.Recorder
+	if store, err := history.Open(filepath.Join(filepath.Dir(tokenPath()), "history")); err != nil {
+		log.Printf("history is off: %v", err)
+	} else {
+		rec = &history.Recorder{Store: store, ColimaHome: colimaHome(), Guest: hub.GuestAverage, Logf: log.Printf}
+	}
+
 	handler := server.New(server.Options{
-		Port: port, Token: token, Version: version, Updater: upd,
+		Port: port, Token: token, Version: version, Updater: upd, Metrics: hub, History: rec,
 		Colima: col, ColimaHome: colimaHome(), Assets: web.Assets,
 		// The locked page's button: open the signed-in link in this user's own browser session.
 		OpenBrowser: func() error { return exec.Command("open", fmt.Sprintf("http://%s/?token=%s", addr, token)).Run() },
@@ -200,6 +210,9 @@ func serve(port int, browser, newToken bool) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	go upd.Run(ctx)
+	if rec != nil {
+		go rec.Run(ctx)
+	}
 	// SIGHUP: the binary was rebuilt in place (the Rebuild button does this); restart into it.
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)

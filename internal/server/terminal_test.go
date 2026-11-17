@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/history"
 )
 
 func postFix(s *Server, body string) (int, string) {
@@ -64,3 +66,28 @@ func ioNopCloser(s string) *nopBody { return &nopBody{strings.NewReader(s)} }
 type nopBody struct{ *strings.Reader }
 
 func (nopBody) Close() error { return nil }
+
+func TestHistoryRoutes(t *testing.T) {
+	s := newTest(t)
+	if w := do(s, "GET", "/api/profiles/default/runs", withCookie); w.Code != http.StatusNotFound {
+		t.Fatalf("no history: got %d", w.Code)
+	}
+	store, err := history.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.AddRun("default", history.Run{T: time.Now(), Job: "app/tests", Outcome: "pass", Seconds: 3})
+	s.opt.History = &history.Recorder{Store: store}
+	w := do(s, "GET", "/api/profiles/default/runs?days=7", withCookie)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"job":"app/tests"`) {
+		t.Fatalf("runs: %d %s", w.Code, w.Body.String())
+	}
+	for _, path := range []string{"/api/profiles/default/builds", "/api/profiles/default/history?days=99"} {
+		if w := do(s, "GET", path, withCookie); w.Code != http.StatusOK {
+			t.Errorf("%s: %d %s", path, w.Code, w.Body.String())
+		}
+	}
+	if w := do(s, "GET", "/api/profiles/..%2fx/runs", withCookie); w.Code == http.StatusOK {
+		t.Errorf("bad profile accepted")
+	}
+}

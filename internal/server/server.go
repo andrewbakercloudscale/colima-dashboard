@@ -23,6 +23,7 @@ import (
 
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/history"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 )
@@ -43,6 +44,8 @@ type Options struct {
 	Updater *update.Updater
 	// OpenBrowser opens the signed-in link in the browser of the user running colima-dashboard.
 	OpenBrowser func() error
+	// History keeps 30 days of runs, builds and samples; nil turns the history routes off.
+	History *history.Recorder
 	// OpenTerminal opens Terminal running a fix's command; nil uses osascript. Tests replace it.
 	OpenTerminal func(cmd string) error
 	Logger       *log.Logger

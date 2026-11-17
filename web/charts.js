@@ -79,7 +79,7 @@ function clock(ms, seconds) {
 
 // timeChart: area (stacked) or line chart over time with gridlines, time axis, hover tooltip and
 // a legend. series: [{name, color, values: [number|null]}]; times: [ms]. One y axis only.
-function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFixed(1), yMax, height = 190, empty = "Collecting…" }) {
+function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFixed(1), yMax, height = 190, empty = "Collecting…", gapMs = 6500 }) {
   const wrap = document.createElement("div");
   wrap.className = "tchart";
   const W = 600, H = height, L = 46, R = 8, T = 10, B = 24;
@@ -92,6 +92,8 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
   const t0 = domain ? Math.min(domain[0], times[0]) : times[0];
   const t1 = domain ? Math.max(domain[1], times[n - 1]) : times[n - 1];
   const fine = t1 - t0 <= 6 * 60e3;
+  const days = t1 - t0 > 36 * 3600e3; // long ranges label dates, not times
+  const label = (t) => days ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short" }) : clock(t, fine);
   const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
   // stacked tops per series
   const tops = series.map(() => new Array(n).fill(0));
@@ -117,10 +119,10 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
   // time labels: start, middle, end
   for (const f of [0, 0.25, 0.5, 0.75, 1]) {
     const t = t0 + (t1 - t0) * f;
-    root.append(svg("text", { x: x(t), y: H - 6, "text-anchor": f === 0 ? "start" : f === 1 ? "end" : "middle", class: "axis" }, document.createTextNode(clock(t, fine))));
+    root.append(svg("text", { x: x(t), y: H - 6, "text-anchor": f === 0 ? "start" : f === 1 ? "end" : "middle", class: "axis" }, document.createTextNode(label(t))));
   }
   // gaps: a break where samples are more than 3 intervals apart
-  const gapAt = (i) => i > 0 && times[i] - times[i - 1] > 6500;
+  const gapAt = (i) => i > 0 && times[i] - times[i - 1] > gapMs;
   series.forEach((s, k) => {
     const color = s.color;
     let line = "", area = "";
@@ -167,7 +169,7 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
     cross.setAttribute("visibility", "visible");
     tip.replaceChildren();
     const head = document.createElement("strong");
-    head.textContent = new Date(times[i]).toLocaleTimeString();
+    head.textContent = t1 - t0 > 20 * 3600e3 ? new Date(times[i]).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : new Date(times[i]).toLocaleTimeString();
     tip.append(head);
     for (const s of [...series].reverse()) {
       const row = document.createElement("div");
@@ -218,4 +220,23 @@ function sparkline(values, color, max) {
   return svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "spark", preserveAspectRatio: "none", "aria-hidden": "true" }, area, line);
 }
 
-window.Charts = { ringGauge, donut, timeChart, sparkline, legend, seriesColor, niceMax };
+// runBars: one bar per run or build, height its duration, colour how it ended. points:
+// [{t, seconds, outcome}], oldest first. Each bar has a tooltip.
+const OUTCOME_COLORS = { pass: "var(--ok)", fail: "var(--bad)", oom: "#9333ea", stopped: "var(--series-other)" };
+function runBars(points, fmt) {
+  const W = 160, H = 32, gap = 2;
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "runbars", preserveAspectRatio: "none", role: "img" });
+  if (!points.length) return root;
+  const max = Math.max(...points.map((p) => p.seconds || 0), 0.001);
+  const bw = Math.max(2, (W - gap * (points.length - 1)) / Math.max(points.length, 12));
+  points.forEach((p, i) => {
+    const h = Math.max(2, ((p.seconds || 0) / max) * (H - 2));
+    const r = svg("rect", { x: i * (bw + gap), y: H - h, width: bw, height: h, rx: 1 });
+    r.style.setProperty("fill", OUTCOME_COLORS[p.outcome] || OUTCOME_COLORS.stopped);
+    r.append(svg("title", {}, document.createTextNode(`${new Date(p.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}: ${p.outcome}, ${fmt(p.seconds || 0)}`)));
+    root.append(r);
+  });
+  return root;
+}
+
+window.Charts = { ringGauge, donut, timeChart, sparkline, legend, seriesColor, niceMax, runBars, OUTCOME_COLORS };
