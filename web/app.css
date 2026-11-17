@@ -157,7 +157,7 @@ tr.group td { background: var(--side); font-weight: 600; }
 .bar .fill { height: 100%; background: var(--accent); }
 
 .jobpanel {
-  position: fixed; left: 232px; right: 12px; bottom: 12px; height: var(--job-h, 45vh); min-height: 0; max-height: calc(100vh - 24px);
+  position: fixed; left: 232px; right: 12px; bottom: 44px; height: var(--job-h, 45vh); min-height: 0; max-height: calc(100vh - 56px);
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
   display: flex; flex-direction: column; z-index: 20;
 }
@@ -280,3 +280,91 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 #nav .badge.warn { background: var(--warn, #eda100); color: #1a1a1a; }
 #nav .nav-sep { margin-top: 10px; position: relative; }
 #nav .nav-sep::before { content: ""; position: absolute; left: 10px; right: 10px; top: -6px; border-top: 1px solid var(--line); }
+
+/* ---------- Splash: shown once per browser session while the first data loads ---------- */
+.splash { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: radial-gradient(120% 90% at 30% 20%, var(--hero-b), var(--hero-a) 55%, #1e1b4b);
+  transition: opacity .45s ease, visibility .45s; }
+.splash.gone { opacity: 0; visibility: hidden; }
+.splash-card { display: grid; justify-items: center; gap: 10px; color: #fff; text-align: center; }
+.splash-logo { filter: drop-shadow(0 10px 30px rgba(0,0,0,.35)); animation: splash-pop .6s cubic-bezier(.2,1.4,.4,1) both; }
+.splash-name { font-size: 26px; font-weight: 700; letter-spacing: -.01em; animation: splash-up .5s .12s ease both; }
+.splash-sub { font-size: 13px; opacity: .8; min-height: 1.2em; animation: splash-up .5s .2s ease both; }
+.splash-bar { width: 220px; height: 4px; border-radius: 99px; background: rgba(255,255,255,.2); overflow: hidden; margin-top: 8px; }
+.splash-bar span { display: block; height: 100%; width: 40%; border-radius: inherit; background: #fff; animation: splash-slide 1.1s ease-in-out infinite; }
+@keyframes splash-pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes splash-up { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes splash-slide { from { transform: translateX(-110%); } to { transform: translateX(260%); } }
+
+/* ---------- Status bar, like Rancher Desktop's ---------- */
+.statusbar { position: fixed; left: 220px; right: 0; bottom: 0; height: 32px; z-index: 15;
+  display: flex; align-items: center; gap: 18px; padding: 0 16px; font-size: 12.5px;
+  background: var(--panel); border-top: 1px solid var(--line); color: var(--muted); }
+.statusbar b { color: var(--text); font-weight: 600; }
+.statusbar > span, .statusbar > button { white-space: nowrap; }
+.statusbar .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; background: var(--ok); vertical-align: 0; }
+.statusbar .dot.off { background: var(--bad); }
+.sb-fill { flex: 1; }
+.sb-update, .sb-job { font: inherit; font-size: 12.5px; padding: 2px 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+.sb-update { background: var(--accent-soft); border-color: transparent; font-weight: 600; }
+.sb-job { display: inline-flex; align-items: center; gap: 10px; border: 0; background: transparent; padding: 0; }
+.sb-progress { width: 180px; height: 10px; border-radius: 99px; background: var(--code); overflow: hidden; position: relative; }
+.sb-progress span { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; transition: width .6s ease;
+  background: repeating-linear-gradient(-45deg, var(--series-1) 0 8px, #6aa8ef 8px 16px); background-size: 22.6px 100%;
+  animation: sb-stripes .8s linear infinite; }
+@keyframes sb-stripes { to { background-position: 22.6px 0; } }
+
+/* ---------- Start animation: only while a start runs ---------- */
+.boot { display: grid; grid-template-columns: 200px 1fr; gap: 24px; align-items: center; padding: 22px;
+  background: linear-gradient(135deg, var(--hero-a), var(--hero-b)); color: #fff; border: 0; border-radius: 16px; }
+.boot h2 { color: #fff; margin: 0 0 4px; font-size: 20px; }
+.boot .boot-sub { opacity: .85; margin: 0 0 14px; font-size: 13px; }
+.boot svg { width: 200px; height: 150px; overflow: visible; }
+.boot .vm { fill: rgba(255,255,255,.08); stroke: rgba(255,255,255,.8); stroke-width: 2; }
+.boot .vm-top { fill: rgba(255,255,255,.18); }
+.boot .led { fill: #5eead4; animation: boot-blink 1.2s ease-in-out infinite; }
+.boot .led:nth-of-type(2) { animation-delay: .4s; }
+.boot .box { fill: #fff; opacity: 0; transform-box: fill-box; transform-origin: center; animation: boot-drop 3.6s cubic-bezier(.3,1.3,.5,1) infinite; }
+.boot .box.b2 { animation-delay: .5s; fill: #c7d2fe; }
+.boot .box.b3 { animation-delay: 1s; fill: #a5f3fc; }
+.boot .box.b4 { animation-delay: 1.5s; fill: #fde68a; }
+.boot .scan { stroke: #5eead4; stroke-width: 2; opacity: .7; animation: boot-scan 2.4s ease-in-out infinite; }
+.boot.done .box { animation: none; opacity: 1; }
+.boot.done .scan { display: none; }
+@keyframes boot-drop { 0% { opacity: 0; transform: translateY(-60px) scale(.8); } 18% { opacity: 1; transform: none; } 80% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(6px); } }
+@keyframes boot-blink { 50% { opacity: .25; } }
+@keyframes boot-scan { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(62px); } }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14px; }
+.steps li { display: flex; align-items: center; gap: 10px; opacity: .55; }
+.steps li .tick { width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); display: grid; place-items: center; font-size: 12px; flex: none; }
+.steps li.now { opacity: 1; font-weight: 600; }
+.steps li.now .tick { border-color: #5eead4; border-top-color: transparent; animation: spin .9s linear infinite; }
+.steps li.done { opacity: .95; }
+.steps li.done .tick { background: #5eead4; border-color: #5eead4; color: #134e4a; }
+.steps li.done .tick::after { content: "✓"; font-weight: 700; }
+.boot-foot { margin-top: 14px; display: flex; align-items: center; gap: 12px; font-size: 12.5px; opacity: .9; }
+.boot-foot .sb-progress { width: 240px; background: rgba(255,255,255,.2); }
+.boot-foot .sb-progress span { background: repeating-linear-gradient(-45deg, #5eead4 0 8px, #99f6e4 8px 16px); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Welcome card ---------- */
+.welcome { display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; align-items: start; }
+.welcome h2 { font-size: 20px; margin: 0; display: flex; align-items: center; gap: 10px; }
+.welcome .links { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
+.welcome .upd { font-size: 13px; }
+.news { display: grid; gap: 10px; }
+.news details { background: var(--code); border-radius: 10px; padding: 10px 14px; }
+.news summary { cursor: pointer; font-weight: 600; }
+.news summary .muted { font-weight: 400; margin-left: 8px; font-size: 12.5px; }
+.news p { white-space: pre-line; font-size: 13px; margin: 8px 0 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-logo, .splash-name, .splash-sub, .splash-bar span, .sb-progress span, .boot .box, .boot .scan, .boot .led, .steps li.now .tick { animation: none !important; }
+  .boot .box { opacity: 1; }
+}
+@media (max-width: 760px) {
+  .statusbar { left: 0; gap: 10px; overflow-x: auto; }
+  #sb-engine, #sb-k8s { display: none; }
+  .boot { grid-template-columns: 1fr; }
+  .welcome { grid-template-columns: 1fr; }
+}

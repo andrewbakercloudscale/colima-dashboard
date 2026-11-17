@@ -24,6 +24,7 @@ import (
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 )
 
 // CookieName holds the session token in the browser.
@@ -38,6 +39,8 @@ type Options struct {
 	ColimaHome string // ~/.colima unless COLIMA_HOME is set
 	Assets     fs.FS  // the embedded web/ directory
 	Metrics    *metrics.Hub
+	// Updater checks for and installs new versions; nil turns the update routes off.
+	Updater *update.Updater
 	// OpenBrowser opens the signed-in link in the browser of the user running colima-dashboard.
 	OpenBrowser func() error
 	Logger      *log.Logger
@@ -64,6 +67,9 @@ func New(opt Options) *Server {
 		opt.Metrics = metrics.NewHub(opt.Colima.Bin, opt.ColimaHome)
 	}
 	s := &Server{opt: opt, jobs: NewJobs(), mux: http.NewServeMux()}
+	if opt.Updater != nil && opt.Updater.Busy == nil {
+		opt.Updater.Busy = s.jobs.Running
+	}
 	s.routes()
 	return s
 }

@@ -136,15 +136,19 @@ function followJob(job, onDone) {
   st.className = "pill busy";
   log.replaceChildren();
   panel.hidden = false;
+  trackBegin(job);
   const src = new EventSource(`/api/jobs/${encodeURIComponent(job.id)}/events`);
   src.addEventListener("line", (e) => {
     const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
-    log.append(JSON.parse(e.data) + "\n");
+    const line = JSON.parse(e.data);
+    log.append(line + "\n");
     if (atBottom) log.scrollTop = log.scrollHeight;
+    trackLine(job, line);
   });
   src.addEventListener("done", (e) => {
     src.close();
     const d = JSON.parse(e.data);
+    trackEnd(job, d.ok);
     st.textContent = d.ok ? "done" : "failed";
     st.className = d.ok ? "pill ok" : "pill fail";
     if (!d.ok) log.append(el("span.err", `\n${d.error}\n`));
@@ -155,6 +159,7 @@ function followJob(job, onDone) {
   src.onerror = () => {
     // EventSource reconnects by itself; the server replays from the start, so clear first.
     log.replaceChildren();
+    trackBegin(job);
   };
 }
 $("#jobclose").addEventListener("click", () => { $("#jobpanel").hidden = true; });
@@ -249,6 +254,9 @@ async function refreshOverview() {
     if (state.lastKey && state.lastKey !== key && $("#modal").hidden) render();
     state.lastKey = key;
     $("#versions").textContent = `Colima Dashboard ${ov.version}` + (ov.colimaVersion ? ` · colima ${ov.colimaVersion}` : "");
+    if (state.bootVersion && ov.version !== state.bootVersion) { location.reload(); return; }
+    state.bootVersion = state.bootVersion || ov.version;
+    paintStatusBar();
   } catch (e) {
     $("#vmstate").replaceChildren(el("span.pill.fail", "error"));
   }
@@ -276,6 +284,7 @@ $("#profile").addEventListener("change", (e) => {
   renderVMState();
   render();
   refreshDiagBadge();
+  refreshStatusInfo();
 });
 
 window.addEventListener("hashchange", render);
@@ -322,6 +331,11 @@ async function renderGeneral(main) {
            el("button", { type: "button", onclick: () => runJob("POST", `${P()}/actions/stop`, undefined, render) }, "Stop")]
         : el("button", { type: "button", onclick: () => startProfile() }, "Start")));
   const cards = el("div.grid");
+  const boot = bootVisible() ? bootCard() : null;
+  if (boot && !tracker.done) {
+    // While it starts, the engine is not there yet: show the progress, not errors.
+    head.lastChild.replaceChildren(el("button", { type: "button", disabled: true }, "Starting…"));
+  }
   const vm = el("div.card", el("h2", `Profile ${state.profile}`));
   if (p) {
     vm.append(el("dl.kv",
@@ -336,11 +350,11 @@ async function renderGeneral(main) {
     vm.append(el("p.muted", "This profile does not exist yet. Start creates it with Colima's defaults."));
   }
   cards.append(vm);
-  main.replaceChildren(head, cards);
+  main.replaceChildren(head, ...(boot ? [boot] : [welcomeCard()]), cards);
   if (state.overview?.colimaError) {
     main.prepend(el("div.notice.bad", "colima is not available: ", state.overview.colimaError, ". Install it with brew install colima docker."));
   }
-  if (!running) return;
+  if (!running || (boot && !tracker.done)) return;
 
   const st = await api("GET", `${P()}/status`);
   if (st.running) {
@@ -929,10 +943,296 @@ function decorateNav() {
   }
 }
 
+
+// ---------- Progress of a start: the status bar and, on General, an animation ----------
+// The animation runs only while a start (or restart, or apply) runs, never on an idle page.
+
+const START_STEPS = [
+  { key: "prep", label: "Preparing", re: /starting colima|creating and starting|using the existing instance/i },
+  { key: "vm", label: "Booting the virtual machine", re: /\(\s*\d+\/\d+\)|starting vz|waiting for the|hostagent|guest agent/i },
+  { key: "engine", label: "Starting the container engine", re: /context=(docker|containerd|incus)/i },
+  { key: "k8s", label: "Starting Kubernetes", re: /context=kubernetes/i },
+  { key: "ready", label: "Ready", re: /msg=done\b|msg="done"/i },
+];
+const tracker = { job: null, kind: "", profile: "", step: -1, sub: 0, k8s: false, sawStart: false, done: false, ok: true, started: 0, showUntil: 0, tick: null };
+
+function jobKind(title) {
+  const m = /^colima (start|restart|apply|stop|delete|kubernetes-reset)\b/.exec(title || "");
+  return m ? m[1] : "other";
+}
+const startLike = (k) => k === "start" || k === "restart" || k === "apply";
+
+function trackBegin(job) {
+  Object.assign(tracker, {
+    job, kind: jobKind(job.title), profile: job.profile || "", step: -1, sub: 0,
+    k8s: !!(state.overview?.profiles || []).find((p) => p.name === job.profile)?.kubernetes,
+    sawStart: false, done: false, ok: true, started: Date.parse(job.started) || Date.now(), showUntil: 0,
+  });
+  clearInterval(tracker.tick);
+  tracker.tick = setInterval(paintProgress, 1000);
+  paintProgress();
+  if (startLike(tracker.kind) && state.tab === "general" && tracker.profile === state.profile && !$("#boot")) render();
+}
+
+function trackLine(job, line) {
+  if (tracker.job !== job || !startLike(tracker.kind)) return;
+  // restart and apply stop the VM first; that part ends with its own "done".
+  if (/starting colima|creating and starting/i.test(line)) tracker.sawStart = true;
+  if (tracker.kind !== "start" && !tracker.sawStart) return;
+  START_STEPS.forEach((s, i) => { if (s.re.test(line) && i > tracker.step) tracker.step = i; });
+  if (/context=kubernetes/i.test(line)) tracker.k8s = true;
+  const m = /\(\s*(\d+)\/(\d+)\)/.exec(line);
+  if (m) tracker.sub = Math.max(tracker.sub, +m[1] / +m[2]);
+  paintProgress();
+}
+
+function trackEnd(job, ok) {
+  if (tracker.job !== job) return;
+  tracker.done = true;
+  tracker.ok = ok;
+  if (ok && startLike(tracker.kind)) tracker.step = START_STEPS.length - 1;
+  clearInterval(tracker.tick);
+  tracker.showUntil = Date.now() + 2500;
+  paintProgress();
+  setTimeout(() => { if (tracker.job === job) { tracker.job = null; paintProgress(); if ($("#boot")) render(); } }, 2600);
+}
+
+function bootVisible() {
+  return !!tracker.job && startLike(tracker.kind) && tracker.profile === state.profile && (!tracker.done || Date.now() < tracker.showUntil);
+}
+
+function steps() { return START_STEPS.filter((s) => s.key !== "k8s" || tracker.k8s); }
+
+function progressPct() {
+  if (tracker.done) return 100;
+  if (!startLike(tracker.kind)) return null;
+  const key = tracker.step >= 0 ? START_STEPS[tracker.step].key : "";
+  const k8s = tracker.k8s;
+  switch (key) {
+    case "prep": return 8;
+    case "vm": return 10 + 50 * tracker.sub;
+    case "engine": return k8s ? 70 : 85;
+    case "k8s": return 90;
+    case "ready": return 100;
+    default: return 3;
+  }
+}
+
+function elapsed() {
+  const s = Math.max(0, Math.round(((tracker.done ? Date.now() : Date.now()) - tracker.started) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+const KIND_TEXT = { start: "Starting", restart: "Restarting", apply: "Applying settings to", stop: "Stopping", delete: "Deleting", "kubernetes-reset": "Resetting Kubernetes in" };
+
+function stepLabel() {
+  if (tracker.done) return tracker.ok ? "Done" : "Failed";
+  if (startLike(tracker.kind)) {
+    if (tracker.kind !== "start" && !tracker.sawStart) return "Stopping the virtual machine";
+    return tracker.step >= 0 ? START_STEPS[tracker.step].label : "Preparing";
+  }
+  return tracker.job?.title || "";
+}
+
+function paintProgress() {
+  const sb = $("#sb-job");
+  if (!tracker.job) { sb.hidden = true; return; }
+  sb.hidden = false;
+  $("#sb-jobtitle").textContent = stepLabel();
+  const pct = progressPct();
+  const bar = $("#sb-jobbar");
+  bar.style.width = `${pct === null ? 100 : pct}%`;
+  bar.style.opacity = pct === null ? ".55" : "1";
+  $("#sb-jobtime").textContent = elapsed();
+  const boot = $("#boot");
+  if (!boot) return;
+  boot.classList.toggle("done", tracker.done);
+  $("#boottitle").textContent = tracker.done
+    ? (tracker.ok ? `${tracker.profile} is running` : `${tracker.profile} did not start`)
+    : `${KIND_TEXT[tracker.kind] || "Starting"} ${tracker.profile}`;
+  const list = steps();
+  const cur = tracker.step >= 0 ? list.indexOf(START_STEPS[tracker.step]) : -1;
+  $("#bootsteps").replaceChildren(...list.map((s, i) => el(`li${i < cur || (tracker.done && tracker.ok) ? ".done" : i === cur || (cur < 0 && i === 0) ? ".now" : ""}`, el("span.tick"), s.label)));
+  $("#bootbar").style.width = `${pct ?? 0}%`;
+  $("#boottime").textContent = elapsed();
+}
+
+function bootCard() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 200 150");
+  svg.setAttribute("aria-hidden", "true");
+  const add = (tag, attrs) => {
+    const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    svg.append(n);
+    return n;
+  };
+  add("rect", { class: "vm", x: 20, y: 20, width: 160, height: 115, rx: 14 });
+  add("rect", { class: "vm-top", x: 20, y: 20, width: 160, height: 22, rx: 14 });
+  add("circle", { class: "led", cx: 36, cy: 31, r: 4 });
+  add("circle", { class: "led", cx: 50, cy: 31, r: 4 });
+  add("line", { class: "scan", x1: 30, y1: 52, x2: 170, y2: 52 });
+  add("rect", { class: "box b1", x: 38, y: 90, width: 34, height: 30, rx: 5 });
+  add("rect", { class: "box b2", x: 83, y: 90, width: 34, height: 30, rx: 5 });
+  add("rect", { class: "box b3", x: 128, y: 90, width: 34, height: 30, rx: 5 });
+  add("rect", { class: "box b4", x: 83, y: 56, width: 34, height: 30, rx: 5 });
+  const card = el("section.card.boot", { id: "boot", "aria-live": "polite" },
+    svg,
+    el("div",
+      el("h2", { id: "boottitle" }),
+      el("p.boot-sub", "Colima is bringing up the virtual machine. The first start downloads an image and takes longest."),
+      el("ol.steps", { id: "bootsteps" }),
+      el("div.boot-foot", el("span.sb-progress", el("span", { id: "bootbar" })), el("span.mono", { id: "boottime" }),
+        el("button.ghost.mini", { type: "button", onclick: () => { $("#jobpanel").hidden = false; } }, "Show output"))));
+  queueMicrotask(paintProgress);
+  return card;
+}
+
+$("#sb-job").addEventListener("click", () => { $("#jobpanel").hidden = false; $("#jobpanel").classList.remove("min"); });
+
+// ---------- Status bar ----------
+
+async function refreshStatusInfo() {
+  const prof = state.profile;
+  if (!prof || !isRunning()) { state.sbInfo = { profile: prof }; paintStatusBar(); return; }
+  try {
+    const st = await api("GET", `${P()}/status`);
+    const info = { profile: prof, engine: st.engine ? `${st.status?.runtime || "docker"} ${st.engine.Version}` : st.status?.runtime, k8s: st.status?.kubernetes };
+    if (info.k8s) {
+      const prev = state.sbInfo?.profile === prof ? state.sbInfo.k8sVersion : null;
+      info.k8sVersion = prev;
+      if (!prev) {
+        api("GET", `${P()}/kubernetes`).then((k) => {
+          const m = /Server Version:\s*v?([\w.+-]+)/.exec(k.version || "");
+          if (m && state.sbInfo?.profile === prof) { state.sbInfo.k8sVersion = m[1].replace(/\+.*/, ""); paintStatusBar(); }
+        }).catch(() => {});
+      }
+    }
+    state.sbInfo = info;
+  } catch { state.sbInfo = { profile: prof }; }
+  paintStatusBar();
+}
+
+function paintStatusBar() {
+  const ov = state.overview || {};
+  $("#sb-version").replaceChildren("Version: ", el("b", ov.version || "–"), ...(ov.colimaVersion ? [" · Colima ", el("b", ov.colimaVersion)] : []));
+  const online = navigator.onLine && !/could not reach/i.test(state.updates?.checkError || "");
+  $("#sb-net").replaceChildren("Network: ", el("b", online ? "online" : "offline"), el(`span.dot${online ? "" : ".off"}`));
+  const i = state.sbInfo || {};
+  const running = isRunning();
+  $("#sb-k8s").replaceChildren("Kubernetes: ", el("b", !running ? "–" : i.k8s ? (i.k8sVersion || "on") : "off"));
+  $("#sb-engine").replaceChildren("Engine: ", el("b", running ? (i.engine || "…") : "stopped"));
+  const u = state.updates;
+  const btn = $("#sb-update");
+  const avail = u && ((u.dashboard?.newer && u.dashboard?.canUpdate) || u.colima?.newer);
+  btn.hidden = !avail;
+  if (avail) btn.textContent = u.dashboard?.phase === "installed" ? "Restarting into the update…" : "Update available";
+}
+$("#sb-update").addEventListener("click", () => { location.hash = "#general"; render(); });
+
+// ---------- Version checks and updates ----------
+
+async function refreshUpdates(force) {
+  try {
+    state.updates = await api(force ? "POST" : "GET", force ? "/api/updates/check" : "/api/updates");
+  } catch (e) {
+    state.updates = { checkError: e.message };
+  }
+  paintStatusBar();
+  const w = $("#welcome");
+  if (w) w.replaceWith(welcomeCard());
+}
+
+function welcomeCard() {
+  const u = state.updates;
+  const ov = state.overview || {};
+  const auto = el("input", { type: "checkbox", checked: !!u?.auto, disabled: !u || u.checkError && !u.dashboard });
+  auto.addEventListener("change", async () => {
+    try { state.updates = await api("POST", "/api/updates/settings", { auto: auto.checked }); toast(auto.checked ? "Updates are automatic" : "Automatic updates off"); }
+    catch (e) { auto.checked = !auto.checked; toast(e.message, true); }
+  });
+  const rows = [];
+  if (!u) rows.push(el("p.muted.small", "Checking for updates…"));
+  else {
+    const d = u.dashboard || {};
+    if (d.phase === "downloading") rows.push(el("p.upd", el("span.pill.busy", "updating"), ` Downloading Colima Dashboard ${d.latest?.version}…`));
+    else if (d.phase === "installed") rows.push(el("p.upd", el("span.pill.ok", "installed"), ` Version ${d.latest?.version} is installed; the dashboard restarts when no task is running.`));
+    else if (d.phase === "failed") rows.push(el("p.upd", el("span.pill.fail", "failed"), ` Update failed: ${d.error}`));
+    else if (d.newer && d.canUpdate) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima Dashboard ${d.latest.version} is out. `,
+      el("button.mini", { type: "button", onclick: installDashboard }, `Update to ${d.latest.version}`), " ", el("a", { href: d.latest.url, target: "_blank", rel: "noopener noreferrer" }, "What changed")));
+    else if (d.newer) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima Dashboard ${d.latest.version} is out: ${d.reason}.`));
+    else if (!d.canUpdate && d.reason) rows.push(el("p.upd.muted", `Colima Dashboard ${d.current}: ${d.reason}.`));
+    else if (d.latest) rows.push(el("p.upd", el("span.pill.ok", "latest"), ` Colima Dashboard ${d.current} is up to date.`));
+    const c = u.colima || {};
+    if (c.newer) rows.push(el("p.upd", el("span.pill.warn", "new"), ` Colima ${c.latest.version} is out (you have ${c.current}). `,
+      c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : el("span.muted", c.reason), " ",
+      el("a", { href: c.latest.url, target: "_blank", rel: "noopener noreferrer" }, "Release notes")));
+    else if (c.latest) rows.push(el("p.upd", el("span.pill.ok", "latest"), ` Colima ${c.current} is up to date.`));
+    if (u.checkError) rows.push(el("p.small.muted", `Could not check everything: ${u.checkError}`));
+    if (u.checkedAt) rows.push(el("p.small.muted", `Checked ${ago(Date.parse(u.checkedAt) / 1000)}. `,
+      el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now")));
+  }
+  const news = (u?.colimaNews || []).map((r, i) => el("details", { open: i === 0 && u.colima?.newer },
+    el("summary", r.name || r.tag, el("span.muted", new Date(r.published).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }))),
+    r.notes ? el("p", r.notes) : null,
+    el("a.small", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, "Full release notes")));
+  return el("section.card", { id: "welcome" },
+    el("div.welcome",
+      el("h2", el("img", { src: "/static/icon.svg", alt: "", width: 28, height: 28 }), "Welcome to Colima Dashboard"),
+      el("label.check", auto, "Update automatically"),
+      el("div", el("p.muted", `A local dashboard for Colima: your VMs, containers, images and Kubernetes in one place. Version ${ov.version || "–"}.`),
+        el("div.links",
+          el("a", { href: "https://github.com/abiosoft/colima", target: "_blank", rel: "noopener noreferrer" }, "Colima on GitHub"),
+          el("a", { href: "https://github.com/andrewbakercloudscale/colima-dashboard", target: "_blank", rel: "noopener noreferrer" }, "Colima Dashboard on GitHub"),
+          el("a", { href: "https://github.com/andrewbakercloudscale/colima-dashboard/issues", target: "_blank", rel: "noopener noreferrer" }, "Report a problem"))),
+      el("div")),
+    el("div", rows),
+    news.length ? [el("h3", "What's new in Colima"), el("div.news", news)] : null);
+}
+
+// Check now: the answer is often "same as before", so say so instead of silently redrawing.
+async function checkNow(e) {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  await refreshUpdates(true);
+  const u = state.updates || {};
+  if (u.checkError && !u.colima?.latest) toast(`Could not check: ${u.checkError}`, true);
+  else if (u.dashboard?.newer || u.colima?.newer) toast("An update is available");
+  else toast(`Everything is up to date${u.colima?.current ? ` (Colima ${u.colima.current})` : ""}`);
+}
+
+async function installDashboard() {
+  try { state.updates = await api("POST", "/api/updates/install"); refreshUpdates(); }
+  catch (e) { toast(e.message, true); }
+  // Poll while it downloads; the page reloads by itself once the new version answers.
+  const poll = setInterval(async () => {
+    try { state.updates = await api("GET", "/api/updates"); } catch { return; }
+    const w = $("#welcome"); if (w) w.replaceWith(welcomeCard());
+    paintStatusBar();
+    if (state.updates.dashboard?.phase !== "downloading") clearInterval(poll);
+  }, 1500);
+}
+
+async function updateColima() {
+  if (!await confirmBox("Update Colima?", "Homebrew upgrades colima. Running profiles keep the old version until you restart them.", "Update", false)) return;
+  runJob("POST", "/api/updates/colima", undefined, () => refreshUpdates(true));
+}
+
 async function boot() {
+  const shownAt = Date.now();
   decorateNav();
   await refreshOverview();
+  const ov = state.overview;
+  if (ov) $("#splashsub").textContent = ov.colimaVersion ? `Colima ${ov.colimaVersion} · ${ov.profiles.length} profile${ov.profiles.length === 1 ? "" : "s"}` : "Colima was not found";
   await render();
+  setTimeout(() => $("#splash").classList.add("gone"), Math.max(0, 700 - (Date.now() - shownAt)));
+  refreshStatusInfo();
+  setInterval(() => { if (!document.hidden) refreshStatusInfo(); }, 30000);
+  refreshUpdates();
+  setInterval(() => { if (!document.hidden) refreshUpdates(); }, 30 * 60 * 1000);
+  window.addEventListener("online", paintStatusBar);
+  window.addEventListener("offline", paintStatusBar);
   // Status in the sidebar stays current; the open tab refreshes itself where it matters.
   setInterval(() => { if (!document.hidden) refreshOverview(); }, 5000);
   // The Diagnostics count in the sidebar, like Rancher Desktop's.

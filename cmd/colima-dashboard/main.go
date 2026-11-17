@@ -21,6 +21,7 @@ import (
 
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/server"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 	"github.com/andrewbakercloudscale/colima-dashboard/web"
 )
 
@@ -155,9 +156,28 @@ func serve(port int, browser, newToken bool) error {
 		return err
 	}
 
+	restart := make(chan struct{}, 1)
+	exe, _ := os.Executable()
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	col := colima.New(bin)
+	upd := &update.Updater{
+		Current: version, Exe: exe, ColimaBin: bin,
+		SettingsPath:  filepath.Join(filepath.Dir(tokenPath()), "settings.json"),
+		ColimaVersion: col.Version,
+		Restart: func() {
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+		},
+	}
+	upd.Load()
+
 	handler := server.New(server.Options{
-		Port: port, Token: token, Version: version,
-		Colima: colima.New(bin), ColimaHome: colimaHome(), Assets: web.Assets,
+		Port: port, Token: token, Version: version, Updater: upd,
+		Colima: col, ColimaHome: colimaHome(), Assets: web.Assets,
 		// The locked page's button: open the signed-in link in this user's own browser session.
 		OpenBrowser: func() error { return exec.Command("open", fmt.Sprintf("http://%s/?token=%s", addr, token)).Run() },
 	})
@@ -179,14 +199,38 @@ func serve(port int, browser, newToken bool) error {
 	defer stop()
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+	go upd.Run(ctx)
+	restarting := false
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
+	case <-restart:
+		restarting = true
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdown)
+	err = srv.Shutdown(shutdown)
+	if restarting {
+		// A new version is in place: become it, keeping the same arguments and process id
+		// (launchd keeps tracking it). Open pages reconnect by themselves.
+		log.Printf("restarting into the updated %s", exe)
+		args := append([]string{exe}, os.Args[1:]...)
+		if !containsArg(args, "--no-browser") {
+			args = append(args, "--no-browser")
+		}
+		return syscall.Exec(exe, args, os.Environ())
+	}
+	return err
+}
+
+func containsArg(args []string, a string) bool {
+	for _, x := range args {
+		if x == a || x == "-"+strings.TrimPrefix(a, "--") {
+			return true
+		}
+	}
+	return false
 }
 
 // loadOrCreateToken keeps one token across restarts, so a restart does not lock open tabs.
