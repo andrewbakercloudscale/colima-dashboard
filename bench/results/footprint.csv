@@ -1,0 +1,25 @@
+ts,tool,item,kb
+2026-11-17T08:36:38Z,rancher,app bundle,1533056
+2026-11-17T08:36:38Z,rancher,app support (vm disks),0
+2026-11-17T08:36:38Z,rancher,caches,0
+2026-11-17T08:36:38Z,rancher,logs,0
+2026-11-17T08:36:38Z,rancher,preferences,4
+2026-11-17T08:36:38Z,rancher,rd bin links,0
+2026-11-17T09:39:35Z,rancher,app bundle,1533056
+2026-11-17T09:39:35Z,rancher,app support (vm disks),2661808
+2026-11-17T09:39:35Z,rancher,caches,211164
+2026-11-17T09:39:35Z,rancher,logs,316
+2026-11-17T09:39:35Z,rancher,preferences,4
+2026-11-17T09:39:35Z,rancher,rd bin links,0
+2026-11-17T10:40:47Z,rancher,app bundle,1533056
+2026-11-17T10:40:47Z,rancher,app support (vm disks),10351468
+2026-11-17T10:40:47Z,rancher,caches,211164
+2026-11-17T10:40:47Z,rancher,logs,308
+2026-11-17T10:40:47Z,rancher,preferences,4
+2026-11-17T10:40:47Z,rancher,rd bin links,0
+2026-11-17T11:51:11Z,colima,colima binary,10364
+2026-11-17T11:51:11Z,colima,lima binaries,110856
+2026-11-17T11:51:11Z,colima,docker cli,28520
+2026-11-17T11:51:11Z,colima,vm disks and config,17248444
+2026-11-17T11:51:12Z,colima,image cache,558696
+2026-11-17T11:51:12Z,colima,lima cache,0
