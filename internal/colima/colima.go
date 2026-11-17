@@ -67,6 +67,59 @@ type Client struct {
 
 	mu   sync.Mutex
 	busy map[string]string // profile -> operation
+
+	// Every open page, the menu bar icon and the alert watcher ask for the same answers every few
+	// seconds, and each `colima list` or `status` starts colima, limactl and an ssh into the VM.
+	// Short-lived caches share one run between them; any action on a profile clears them.
+	cmu     sync.Mutex
+	list    cached[[]Profile]
+	status  map[string]*cached[*Status]
+	version cached[string]
+	gen     int // bumped by Forget, so an answer fetched before an action is not kept after it
+}
+
+// cached holds one answer and when it was taken; run serialises callers so a burst of requests
+// starts colima once.
+type cached[T any] struct {
+	run sync.Mutex
+	at  time.Time
+	val T
+	err error
+}
+
+func (c *cached[T]) get(ttl time.Duration, epoch *sync.Mutex, gen *int, fetch func() (T, error)) (T, error) {
+	c.run.Lock()
+	defer c.run.Unlock()
+	epoch.Lock()
+	fresh := !c.at.IsZero() && time.Since(c.at) < ttl
+	val, err, g := c.val, c.err, *gen
+	epoch.Unlock()
+	if fresh {
+		return val, err
+	}
+	val, err = fetch()
+	epoch.Lock()
+	if *gen == g {
+		c.at, c.val, c.err = time.Now(), val, err
+	}
+	epoch.Unlock()
+	return val, err
+}
+
+const (
+	listTTL    = 8 * time.Second
+	versionTTL = 10 * time.Minute
+)
+
+// Forget drops the cached list and status, so the next request sees a change at once.
+func (c *Client) Forget() {
+	c.cmu.Lock()
+	c.gen++
+	c.list.at, c.version.at = time.Time{}, time.Time{}
+	for _, s := range c.status {
+		s.at = time.Time{}
+	}
+	c.cmu.Unlock()
 }
 
 // New returns a client for the colima binary at bin ("colima" to use PATH).
@@ -106,6 +159,20 @@ type Status struct {
 
 // List returns every profile. colima prints one JSON object per line.
 func (c *Client) List(ctx context.Context) ([]Profile, error) {
+	cachedList, err := c.list.get(listTTL, &c.cmu, &c.gen, func() ([]Profile, error) { return c.listNow(ctx) })
+	if err != nil {
+		return nil, err
+	}
+	profiles := append([]Profile(nil), cachedList...)
+	c.mu.Lock()
+	for i := range profiles {
+		profiles[i].Busy = c.busy[profiles[i].Name]
+	}
+	c.mu.Unlock()
+	return profiles, nil
+}
+
+func (c *Client) listNow(ctx context.Context) ([]Profile, error) {
 	out, err := c.Runner.Output(ctx, c.Bin, "list", "--json")
 	if err != nil {
 		return nil, err
@@ -123,11 +190,6 @@ func (c *Client) List(ctx context.Context) ([]Profile, error) {
 		}
 		profiles = append(profiles, p)
 	}
-	c.mu.Lock()
-	for i := range profiles {
-		profiles[i].Busy = c.busy[profiles[i].Name]
-	}
-	c.mu.Unlock()
 	return profiles, nil
 }
 
@@ -136,6 +198,20 @@ func (c *Client) Status(ctx context.Context, profile string) (*Status, error) {
 	if !ValidProfile(profile) {
 		return nil, fmt.Errorf("invalid profile name %q", profile)
 	}
+	c.cmu.Lock()
+	if c.status == nil {
+		c.status = map[string]*cached[*Status]{}
+	}
+	sc := c.status[profile]
+	if sc == nil {
+		sc = &cached[*Status]{}
+		c.status[profile] = sc
+	}
+	c.cmu.Unlock()
+	return sc.get(listTTL, &c.cmu, &c.gen, func() (*Status, error) { return c.statusNow(ctx, profile) })
+}
+
+func (c *Client) statusNow(ctx context.Context, profile string) (*Status, error) {
 	out, err := c.Runner.Output(ctx, c.Bin, "status", "--json", "-p", profile)
 	if err != nil {
 		return nil, err
@@ -149,6 +225,10 @@ func (c *Client) Status(ctx context.Context, profile string) (*Status, error) {
 
 // Version returns the colima version string, e.g. "0.10.3".
 func (c *Client) Version(ctx context.Context) (string, error) {
+	return c.version.get(versionTTL, &c.cmu, &c.gen, func() (string, error) { return c.versionNow(ctx) })
+}
+
+func (c *Client) versionNow(ctx context.Context) (string, error) {
 	out, err := c.Runner.Output(ctx, c.Bin, "version")
 	if err != nil {
 		return "", err
@@ -381,6 +461,7 @@ func (c *Client) claim(profile, op string) error {
 		return ErrBusy
 	}
 	c.busy[profile] = op
+	c.Forget()
 	return nil
 }
 
@@ -388,6 +469,7 @@ func (c *Client) release(profile string) {
 	c.mu.Lock()
 	delete(c.busy, profile)
 	c.mu.Unlock()
+	c.Forget()
 }
 
 // KubeSettings are the kubernetes settings saved in a profile's colima.yaml.

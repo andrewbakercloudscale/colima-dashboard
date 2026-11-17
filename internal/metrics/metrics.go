@@ -227,9 +227,27 @@ type hostReader struct {
 	dir     string
 	lastCPU float64
 	lastT   time.Time
+	// The VM's processes rarely change and footprint is slow, so neither runs every sample.
+	pidList []string
+	pidsAt  time.Time
+	mem     uint64
+	memAt   time.Time
 }
 
+const (
+	pidsEvery      = 30 * time.Second
+	footprintEvery = 10 * time.Second
+)
+
 func (h *hostReader) pids() []string {
+	if h.pidList != nil && time.Since(h.pidsAt) < pidsEvery {
+		return h.pidList
+	}
+	h.pidList, h.pidsAt = h.findPIDs(), time.Now()
+	return h.pidList
+}
+
+func (h *hostReader) findPIDs() []string {
 	var pids []string
 	if b, err := os.ReadFile(filepath.Join(h.dir, "ha.pid")); err == nil {
 		pids = append(pids, strings.TrimSpace(string(b)))
@@ -248,6 +266,7 @@ func (h *hostReader) sample() *Host {
 	}
 	out, err := exec.Command("ps", "-o", "time=", "-p", strings.Join(pids, ",")).Output()
 	if err != nil {
+		h.pidList = nil // a VM process went away: look again next time
 		return nil
 	}
 	var cpu float64
@@ -260,13 +279,17 @@ func (h *hostReader) sample() *Host {
 		res.CPU = (cpu - h.lastCPU) / now.Sub(h.lastT).Seconds() * 100
 	}
 	h.lastCPU, h.lastT = cpu, now
-	args := []string{"-f", "bytes", "--noCategories"}
-	for _, p := range pids {
-		args = append(args, "-p", p)
+	if time.Since(h.memAt) >= footprintEvery {
+		args := []string{"-f", "bytes", "--noCategories"}
+		for _, p := range pids {
+			args = append(args, "-p", p)
+		}
+		if fp, err := exec.Command("footprint", args...).Output(); err == nil {
+			h.mem = sumFootprint(fp)
+		}
+		h.memAt = time.Now()
 	}
-	if fp, err := exec.Command("footprint", args...).Output(); err == nil {
-		res.Memory = sumFootprint(fp)
-	}
+	res.Memory = h.mem
 	return res
 }
 

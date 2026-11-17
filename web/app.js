@@ -1818,7 +1818,7 @@ async function boot() {
   window.addEventListener("online", paintStatusBar);
   window.addEventListener("offline", paintStatusBar);
   // Status in the sidebar stays current; the open tab refreshes itself where it matters.
-  setInterval(() => { if (!document.hidden) refreshOverview(); }, 5000);
+  setInterval(() => { if (!document.hidden) refreshOverview(); }, 10000);
   // The Diagnostics count in the sidebar, like Rancher Desktop's.
   refreshDiagBadge();
   setInterval(() => { if (!document.hidden) refreshDiagBadge(); }, 5 * 60 * 1000);

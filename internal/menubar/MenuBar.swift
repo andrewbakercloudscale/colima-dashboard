@@ -27,7 +27,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         refresh()
-        Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.refresh() }
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
     func request(_ method: String, _ path: String, _ done: ((Data?) -> Void)? = nil) {
@@ -51,7 +51,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 self.failures += 1
                 // The dashboard is gone (quit or replaced by an update): so is the icon.
-                if self.failures >= 6 { NSApp.terminate(nil) }
+                if self.failures >= 3 { NSApp.terminate(nil) }
             }
             self.paint()
         }
