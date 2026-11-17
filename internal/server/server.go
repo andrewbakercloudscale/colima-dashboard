@@ -43,7 +43,9 @@ type Options struct {
 	Updater *update.Updater
 	// OpenBrowser opens the signed-in link in the browser of the user running colima-dashboard.
 	OpenBrowser func() error
-	Logger      *log.Logger
+	// OpenTerminal opens Terminal running a fix's command; nil uses osascript. Tests replace it.
+	OpenTerminal func(cmd string) error
+	Logger       *log.Logger
 }
 
 // Server is the HTTP handler.

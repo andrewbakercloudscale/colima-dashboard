@@ -22,7 +22,18 @@ type Check struct {
 	Title  string `json:"title"`
 	State  string `json:"state"` // pass | warn | fail | skip
 	Detail string `json:"detail"`
-	Fix    string `json:"fix,omitempty"` // a command to copy, never run for the user
+	Fix    string `json:"fix,omitempty"` // the command that fixes it
+	// Action is how the page's button runs Fix: "terminal" opens Terminal with it (see
+	// terminal.go), "start" and "restart" use the page's own progress view.
+	Action string `json:"action,omitempty"`
+	// Confirm, when set, is what the page asks before a fix that deletes or edits something.
+	Confirm string `json:"confirm,omitempty"`
+}
+
+// inTerminal marks a check's fix as one the page opens in Terminal.
+func inTerminal(c Check, fix string) Check {
+	c.Fix, c.Action = fix, "terminal"
+	return c
 }
 
 func (s *Server) apiDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +57,7 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 	// 1. colima itself
 	ver, err := s.opt.Colima.Version(ctx)
 	if err != nil {
-		add(Check{ID: "colima", Title: "colima is installed", State: "fail", Detail: err.Error(), Fix: "brew install colima docker"})
+		add(inTerminal(Check{ID: "colima", Title: "colima is installed", State: "fail", Detail: err.Error()}, "brew install colima docker"))
 		return checks
 	}
 	add(Check{ID: "colima", Title: "colima is installed", State: "pass", Detail: "version " + ver})
@@ -55,7 +66,7 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 	st, stErr := s.opt.Colima.Status(ctx, profile)
 	if stErr != nil {
 		add(Check{ID: "vm", Title: "Profile " + profile + " is running", State: "fail", Detail: "not running",
-			Fix: "colima start " + profile})
+			Fix: "colima start " + profile, Action: "start"})
 	} else {
 		add(Check{ID: "vm", Title: "Profile " + profile + " is running", State: "pass",
 			Detail: fmt.Sprintf("%s, %s, %d CPUs, %s memory", st.Driver, st.Runtime, st.CPU, humanBytes(st.Memory))})
@@ -66,7 +77,7 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 	if stErr == nil && st.Runtime == "docker" {
 		dc, _ := s.dockerFor(profile)
 		if err := dc.Ping(ctx); err != nil {
-			add(Check{ID: "socket", Title: "Docker engine answers", State: "fail", Detail: err.Error(), Fix: "colima restart " + profile})
+			add(Check{ID: "socket", Title: "Docker engine answers", State: "fail", Detail: err.Error(), Fix: "colima restart " + profile, Action: "restart"})
 		} else {
 			add(Check{ID: "socket", Title: "Docker engine answers", State: "pass", Detail: sock})
 		}
@@ -83,10 +94,10 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 		cur, err := kubeCurrentContext(ctx)
 		switch {
 		case err != nil:
-			add(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn", Detail: err.Error(), Fix: "brew install kubectl"})
+			add(inTerminal(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn", Detail: err.Error()}, "brew install kubectl"))
 		case cur != want:
-			add(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn",
-				Detail: fmt.Sprintf("current context is %q", cur), Fix: "kubectl config use-context " + want})
+			add(inTerminal(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn",
+				Detail: fmt.Sprintf("current context is %q", cur)}, "kubectl config use-context "+want))
 		default:
 			add(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "pass", Detail: cur})
 		}
@@ -107,21 +118,29 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 	var out []Check
 	dockerBin, err := exec.LookPath("docker")
 	if err != nil {
-		return append(out, Check{ID: "dockercli", Title: "docker CLI is installed", State: "fail",
-			Detail: "colima runs the engine; the docker command comes separately", Fix: "brew install docker"})
+		return append(out, inTerminal(Check{ID: "dockercli", Title: "docker CLI is installed", State: "fail",
+			Detail: "colima runs the engine; the docker command comes separately"}, "brew install docker"))
 	}
 	out = append(out, Check{ID: "dockercli", Title: "docker CLI is installed", State: "pass", Detail: dockerBin})
 
 	want := colima.DockerContext(profile)
 	if running {
 		if host := os.Getenv("DOCKER_HOST"); host != "" {
-			out = append(out, Check{ID: "context", Title: "docker uses this profile", State: "warn",
-				Detail: "DOCKER_HOST is set to " + host + "; it overrides the docker context", Fix: "unset DOCKER_HOST"})
+			c := Check{ID: "context", Title: "docker uses this profile", State: "warn",
+				Detail: "DOCKER_HOST is set to " + host + "; it overrides the docker context"}
+			if files := profilesMentioning(homeDir(), "DOCKER_HOST"); len(files) > 0 {
+				c = inTerminal(c, "sed -i '.colima-dashboard.bak' '/DOCKER_HOST/d' "+strings.Join(files, " ")+
+					" && launchctl unsetenv DOCKER_HOST && echo 'Done. Open a new terminal and restart Colima Dashboard.'")
+				c.Confirm = "Deletes every line mentioning DOCKER_HOST from " + strings.Join(files, " and ") + ". A backup of each file is kept next to it, ending .colima-dashboard.bak."
+			} else {
+				c = inTerminal(c, "launchctl unsetenv DOCKER_HOST && echo 'Done. Restart Colima Dashboard.'")
+			}
+			out = append(out, c)
 		} else if cur, err := runText(ctx, dockerBin, "context", "show"); err != nil {
 			out = append(out, Check{ID: "context", Title: "docker uses this profile", State: "warn", Detail: err.Error()})
 		} else if cur != want {
 			out = append(out, Check{ID: "context", Title: "docker uses this profile", State: "warn",
-				Detail: fmt.Sprintf("current context is %q", cur), Fix: "docker context use " + want})
+				Detail: fmt.Sprintf("current context is %q", cur), Fix: "docker context use " + want, Action: "terminal"})
 		} else {
 			out = append(out, Check{ID: "context", Title: "docker uses this profile", State: "pass", Detail: cur})
 		}
@@ -135,7 +154,7 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 		if p, err := exec.LookPath(helper); err != nil {
 			out = append(out, Check{ID: "creds", Title: "Docker credential helper exists", State: "fail",
 				Detail: fmt.Sprintf("~/.docker/config.json names credsStore %q but %s is not on PATH, so pulls fail", cfg.CredsStore, helper),
-				Fix:    "brew install docker-credential-helper"})
+				Fix:    "brew install docker-credential-helper", Action: "terminal"})
 		} else {
 			out = append(out, Check{ID: "creds", Title: "Docker credential helper exists", State: "pass", Detail: p})
 		}
@@ -143,7 +162,7 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 	for _, plugin := range []struct{ name, brew string }{{"buildx", "docker-buildx"}, {"compose", "docker-compose"}} {
 		if _, err := runText(ctx, dockerBin, plugin.name, "version"); err != nil {
 			out = append(out, Check{ID: plugin.name, Title: "docker " + plugin.name + " plugin", State: "warn",
-				Detail: "not installed (Rancher Desktop bundles it; Colima does not)", Fix: "brew install " + plugin.brew})
+				Detail: "not installed (Rancher Desktop bundles it; Colima does not)", Fix: "brew install " + plugin.brew, Action: "terminal"})
 		} else {
 			out = append(out, Check{ID: plugin.name, Title: "docker " + plugin.name + " plugin", State: "pass", Detail: "installed"})
 		}
@@ -178,40 +197,69 @@ func diskCheck() Check {
 	free := int64(fs.Bavail) * int64(fs.Bsize)
 	c := Check{ID: "disk", Title: "Free disk space on the Mac", State: "pass", Detail: humanBytes(free) + " free"}
 	if free < 10<<30 {
-		c.State, c.Fix = "warn", "docker system prune"
+		c.State, c.Fix, c.Action = "warn", "docker system prune", "terminal"
 		c.Detail += "; the VM disk grows into this space"
 	}
 	return c
 }
 
 func rancherLeftovers() []Check {
-	home, _ := os.UserHomeDir()
-	if _, err := os.Stat("/Applications/Rancher Desktop.app"); err == nil {
-		return []Check{{ID: "rancher", Title: "Rancher Desktop", State: "warn",
-			Detail: "Rancher Desktop is installed; do not run it and Colima at the same time (both take the docker socket and contexts)"}}
+	home := homeDir()
+	if _, err := os.Stat(rancherApp); err == nil {
+		c := Check{ID: "rancher", Title: "Rancher Desktop", State: "warn",
+			Detail: "Rancher Desktop is installed; do not run it and Colima at the same time (both take the docker socket and contexts)"}
+		// Quit it first; Homebrew removes a cask it installed, anything else goes to the Bin.
+		fix := `osascript -e 'quit app "Rancher Desktop"'; `
+		if brewCask("rancher") {
+			fix += "brew uninstall --cask rancher"
+		} else {
+			fix += `osascript -e 'tell application "Finder" to delete POSIX file "` + rancherApp + `"'`
+		}
+		c = inTerminal(c, fix)
+		c.Confirm = "Quits and uninstalls Rancher Desktop. Its settings and VM data stay; this page then offers to remove them."
+		return []Check{c}
 	}
 	var out []Check
 	data := filepath.Join(home, "Library", "Application Support", "rancher-desktop")
 	if _, err := os.Stat(data); err == nil {
 		out = append(out, Check{ID: "rancher-data", Title: "Rancher Desktop leftovers", State: "warn",
 			Detail: "Rancher Desktop is gone but its data (VM disks) remains at " + data,
-			Fix:    `rm -rf ~/Library/Application\ Support/rancher-desktop`})
+			Fix:    `rm -rf ~/Library/Application\ Support/rancher-desktop`, Action: "terminal",
+			Confirm: "Deletes Rancher Desktop's VM disks and settings for good, with every image and container in them."})
 	}
-	// Read the shell profiles rather than our own PATH: run as a LaunchAgent we never see it.
-	if files := rdPathFiles(home); len(files) > 0 {
+	if files := profilesMentioning(home, ".rd/bin"); len(files) > 0 {
 		out = append(out, Check{ID: "rancher-path", Title: "Rancher Desktop leftovers", State: "warn",
 			Detail: "~/.rd/bin is still added to PATH by " + strings.Join(files, ", ") + " (Rancher Desktop wrote it)",
-			Fix:    "remove the lines mentioning .rd/bin from " + strings.Join(files, " and ")})
+			Fix:    `sed -i '.colima-dashboard.bak' '/\.rd\/bin/d' ` + strings.Join(files, " "), Action: "terminal",
+			Confirm: "Deletes the lines mentioning .rd/bin from " + strings.Join(files, " and ") + ". A backup of each file is kept next to it, ending .colima-dashboard.bak."})
 	}
 	return out
 }
 
-// rdPathFiles lists the shell profiles that still put Rancher Desktop's ~/.rd/bin on PATH.
-func rdPathFiles(home string) []string {
+const rancherApp = "/Applications/Rancher Desktop.app"
+
+func homeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// brewCask says whether Homebrew installed the named cask.
+func brewCask(name string) bool {
+	for _, prefix := range []string{"/opt/homebrew", "/usr/local"} {
+		if _, err := os.Stat(filepath.Join(prefix, "Caskroom", name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// profilesMentioning lists the shell profiles that contain text, as ~/ paths. We read the files
+// rather than our own environment: run as a LaunchAgent we never see what they set.
+func profilesMentioning(home, text string) []string {
 	var out []string
 	for _, f := range []string{".zshrc", ".zprofile", ".bash_profile", ".bashrc", ".profile"} {
 		b, err := os.ReadFile(filepath.Join(home, f))
-		if err == nil && strings.Contains(string(b), ".rd/bin") {
+		if err == nil && strings.Contains(string(b), text) {
 			out = append(out, "~/"+f)
 		}
 	}
@@ -229,7 +277,8 @@ func (s *Server) latestCheck(ctx context.Context, current string) Check {
 	if latest == strings.TrimPrefix(current, "v") {
 		c.State, c.Detail = "pass", "latest is "+latest
 	} else {
-		c.State, c.Detail, c.Fix = "warn", fmt.Sprintf("you have %s, latest is %s", current, latest), "brew upgrade colima"
+		c.State, c.Detail = "warn", fmt.Sprintf("you have %s, latest is %s", current, latest)
+		c = inTerminal(c, "brew upgrade colima")
 	}
 	return c
 }

@@ -200,6 +200,16 @@ func serve(port int, browser, newToken bool) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	go upd.Run(ctx)
+	// SIGHUP: the binary was rebuilt in place (the Rebuild button does this); restart into it.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		<-hup
+		select {
+		case restart <- struct{}{}:
+		default:
+		}
+	}()
 	restarting := false
 	select {
 	case err := <-errc:
