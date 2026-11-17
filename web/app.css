@@ -11,6 +11,7 @@
   --ok: #157f3b;
   --ok-soft: #dcf3e3;
   --warn: #8a5a00;
+  --badge-bad-bg: #b42318; --badge-bad-fg: #fff;
   --warn-soft: #fbefd2;
   --bad: #b42318;
   --bad-soft: #fde4e1;
@@ -39,6 +40,7 @@
     --ok: #4ade80;
     --ok-soft: #12321f;
     --warn: #fbbf24;
+    --badge-bad-bg: #f87171; --badge-bad-fg: #1a1a1a;
     --warn-soft: #3a2c0b;
     --bad: #f87171;
     --bad-soft: #3d1614;
@@ -66,6 +68,7 @@
   --ok: #4ade80;
   --ok-soft: #12321f;
   --warn: #fbbf24;
+  --badge-bad-bg: #f87171; --badge-bad-fg: #1a1a1a;
   --warn-soft: #3a2c0b;
   --bad: #f87171;
   --bad-soft: #3d1614;
@@ -132,7 +135,7 @@ button, .btn {
 button:hover { filter: brightness(1.06); }
 button:disabled { opacity: .5; cursor: default; }
 button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
-button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.danger { background: var(--badge-bad-bg); border-color: var(--badge-bad-bg); color: var(--badge-bad-fg); }
 button.ghost.danger { background: transparent; color: var(--bad); border-color: var(--line); }
 button.mini { padding: 3px 8px; font-size: 12px; }
 input, select {
@@ -255,7 +258,7 @@ tr.group td { background: var(--side); font-weight: 600; }
   position: fixed; top: 16px; right: 16px; z-index: 40; background: var(--text); color: var(--bg);
   padding: 10px 14px; border-radius: 10px; box-shadow: var(--shadow); max-width: 420px;
 }
-.toast.bad { background: var(--bad); color: #fff; }
+.toast.bad { background: var(--badge-bad-bg); color: var(--badge-bad-fg); }
 
 /* ---------- Monitor ---------- */
 .seg { display: inline-flex; background: var(--head-band); border-radius: 999px; padding: 3px; gap: 2px; }
@@ -356,8 +359,9 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 }
 
 /* Sidebar: a count of problems on Diagnostics, and Preferences set apart like a settings button. */
-#nav .badge { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 99px; background: var(--bad, #e34948); color: #fff; font-size: 12px; font-weight: 600; text-align: center; line-height: 18px; }
-#nav .badge.warn { background: var(--warn, #eda100); color: #1a1a1a; }
+#nav .badge { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 99px; background: var(--badge-bad-bg); color: var(--badge-bad-fg); font-size: 12px; font-weight: 700; text-align: center; line-height: 18px; }
+/* the same bright amber and near-black text in both themes: --warn is dark brown in light mode */
+#nav .badge.warn { background: #f5b301; color: #1a1a1a; }
 #nav .nav-sep { margin-top: 10px; position: relative; }
 #nav .nav-sep::before { content: ""; position: absolute; left: 10px; right: 10px; top: -6px; border-top: 1px solid var(--line); }
 
