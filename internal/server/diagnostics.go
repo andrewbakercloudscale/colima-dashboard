@@ -105,6 +105,7 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 
 	// 6. disk space on the Mac
 	add(diskCheck())
+	add(s.localNameCheck())
 
 	// 7. what a removed Rancher Desktop left behind
 	checks = append(checks, rancherLeftovers()...)

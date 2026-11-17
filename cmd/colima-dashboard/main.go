@@ -189,15 +189,16 @@ func serve(port int, browser, newToken bool) error {
 		Port: port, Token: token, Version: version, Updater: upd, Metrics: hub, History: rec,
 		Colima: col, ColimaHome: colimaHome(), Assets: web.Assets,
 		// The locked page's button: open the signed-in link in this user's own browser session.
-		OpenBrowser: func() error { return exec.Command("open", fmt.Sprintf("http://%s/?token=%s", addr, token)).Run() },
+		OpenBrowser: func() error { return exec.Command("open", server.BaseURL(port)+"/?token="+token).Run() },
 	})
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
-	url := fmt.Sprintf("http://%s/?token=%s", addr, token)
-	fmt.Printf("Colima Dashboard %s on http://%s\nOpen: %s\n", version, addr, url)
+	// The friendly name when /etc/hosts has it (install.sh adds it), else 127.0.0.1.
+	url := server.BaseURL(port) + "/?token=" + token
+	fmt.Printf("Colima Dashboard %s on %s\nOpen: %s\n", version, server.BaseURL(port), url)
 	if browser {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
@@ -290,6 +291,6 @@ func openRunning(port int) error {
 	if err != nil {
 		return fmt.Errorf("colima-dashboard does not seem to be running (no %s)", tokenPath())
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d/?token=%s", port, strings.TrimSpace(string(b)))
+	url := server.BaseURL(port) + "/?token=" + strings.TrimSpace(string(b))
 	return exec.Command("open", url).Run()
 }

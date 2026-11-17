@@ -9,6 +9,9 @@
 #   3. Tells the docker CLI where Homebrew keeps compose and buildx (~/.docker/config.json).
 #   4. Downloads the latest Colima Dashboard release, checks its SHA-256, installs it into
 #      Homebrew's bin folder (no sudo), starts it at login and opens it in your browser.
+#   5. Adds "127.0.0.1 colima.localhost" to /etc/hosts so http://colima.localhost:7766 works in
+#      every browser. This is the only step that uses sudo (it asks for your Mac password); say
+#      no and the dashboard still works at http://127.0.0.1:7766.
 # It does not start a Colima VM: press Start in the dashboard (the first start takes a while).
 #
 # Options: --dry-run (print what it would do), --no-service (do not start at login),
@@ -125,6 +128,23 @@ else
     printf '   would download %s, check it against checksums.txt and install it\n' "${BASE}/${ASSET}"
 fi
 
+# 5. An easy address: colima.localhost. Names under .localhost never leave this Mac.
+URL="http://127.0.0.1:7766"
+if grep -Eq '^[[:space:]]*127\.0\.0\.1[[:space:]].*colima\.localhost' /etc/hosts 2>/dev/null; then
+    URL="http://colima.localhost:7766"
+else
+    say "Adding colima.localhost to /etc/hosts (sudo asks for your Mac password)"
+    if [ "${DRY}" -eq 1 ]; then
+        printf '   would append: 127.0.0.1 colima.localhost\n'
+    elif printf '127.0.0.1 colima.localhost\n' | sudo tee -a /etc/hosts >/dev/null; then
+        sudo dscacheutil -flushcache 2>/dev/null || true
+        sudo killall -HUP mDNSResponder 2>/dev/null || true
+        URL="http://colima.localhost:7766"
+    else
+        warn "skipped; the dashboard is at http://127.0.0.1:7766 (its General page has a button to add the name later)"
+    fi
+fi
+
 if [ "${SERVICE}" -eq 1 ]; then
     say "Starting Colima Dashboard now and at every login"
     run "${DEST}" install-service
@@ -136,5 +156,5 @@ else
     say "Start it with: colima-dashboard"
 fi
 
-say "Done. Colima Dashboard is at http://127.0.0.1:7766 (it updates itself; untick 'Update automatically' on its General page to stop that)."
+say "Done. Colima Dashboard is at ${URL} (it updates itself; untick 'Update automatically' on its General page to stop that)."
 say "Press Start on the General page to create your first Colima VM."
