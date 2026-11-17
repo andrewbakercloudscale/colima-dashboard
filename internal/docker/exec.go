@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	pathpkg "path"
 	"strconv"
 	"strings"
 )
@@ -149,7 +150,7 @@ func demuxRaw(r io.Reader, stdout, stderr io.Writer) error {
 // Entry is one item in a container folder.
 type Entry struct {
 	Name     string `json:"name"`
-	Kind     string `json:"kind"` // "dir", "file" or "link"
+	Kind     string `json:"kind"` // "dir", "file", "link" (to a file or broken) or "dirlink" (to a folder)
 	Size     int64  `json:"size"`
 	Modified int64  `json:"modified"` // unix seconds, 0 when unknown
 }
@@ -162,8 +163,8 @@ for f in .* *; do
   { [ "$f" = . ] || [ "$f" = .. ]; } && continue
   [ -e "$f" ] || [ -L "$f" ] || continue
   n=$((n+1)); [ "$n" -gt 2000 ] && { echo "..." ; break; }
-  if [ -L "$f" ]; then t=link; elif [ -d "$f" ]; then t=dir; else t=file; fi
-  s=$(stat -c %s -- "$f" 2>/dev/null || echo 0); m=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
+  if [ -L "$f" ] && [ -d "$f" ]; then t=dirlink; elif [ -L "$f" ]; then t=link; elif [ -d "$f" ]; then t=dir; else t=file; fi
+  s=$(stat -L -c %s -- "$f" 2>/dev/null || echo 0); m=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
   printf '%s\t%s\t%s\t%s\n' "$t" "$s" "$m" "$f"
 done`
 
@@ -206,19 +207,43 @@ func (c *Client) Archive(ctx context.Context, container, path string) (io.ReadCl
 // ReadFile returns the first limit bytes of a regular file inside a container, the file's full
 // size, and whether it was cut.
 func (c *Client) ReadFile(ctx context.Context, container, path string, limit int64) (data []byte, size int64, err error) {
-	rc, err := c.Archive(ctx, container, path)
+	rc, tr, h, err := c.OpenFile(ctx, container, path)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rc.Close()
-	tr := tar.NewReader(rc)
-	h, err := tr.Next()
-	if err != nil {
-		return nil, 0, err
-	}
-	if h.Typeflag != tar.TypeReg {
-		return nil, 0, errors.New("not a regular file")
-	}
 	data, err = io.ReadAll(io.LimitReader(tr, limit))
 	return data, h.Size, err
+}
+
+// OpenFile opens a regular file inside a container for reading, following symbolic links (up to
+// eight). The caller reads the content from tr and closes rc.
+func (c *Client) OpenFile(ctx context.Context, container, p string) (rc io.ReadCloser, tr *tar.Reader, h *tar.Header, err error) {
+	for hop := 0; hop < 8; hop++ {
+		rc, err = c.Archive(ctx, container, p)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tr = tar.NewReader(rc)
+		h, err = tr.Next()
+		if err != nil {
+			rc.Close()
+			return nil, nil, nil, err
+		}
+		switch h.Typeflag {
+		case tar.TypeReg:
+			return rc, tr, h, nil
+		case tar.TypeSymlink:
+			rc.Close()
+			target := h.Linkname
+			if !pathpkg.IsAbs(target) {
+				target = pathpkg.Join(pathpkg.Dir(p), target)
+			}
+			p = pathpkg.Clean(target)
+		default:
+			rc.Close()
+			return nil, nil, nil, errors.New("not a regular file")
+		}
+	}
+	return nil, nil, nil, errors.New("too many symbolic links")
 }

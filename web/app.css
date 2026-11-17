@@ -483,7 +483,7 @@ button.link:hover { text-decoration: underline; }
 .files-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
 .files-table td { vertical-align: middle; }
 .ficon { display: inline-block; width: 14px; text-align: center; color: var(--muted); }
-.ficon.dir { color: var(--accent); }
+.ficon.dir, .ficon.dirlink { color: var(--accent); }
 td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .viewer { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .viewer-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

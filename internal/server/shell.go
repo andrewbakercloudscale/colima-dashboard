@@ -1,7 +1,6 @@
 package server
 
 import (
-	"archive/tar"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -311,29 +310,30 @@ func (s *Server) apiFileDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	name := path.Base(p)
+	if name == "/" {
+		name = "root"
+	}
+	// A file comes back as itself (links followed); a folder as the tar Docker made of it.
+	if r.URL.Query().Get("kind") == "file" {
+		frc, tr, h, err := dc.OpenFile(r.Context(), r.PathValue("id"), p)
+		if err != nil {
+			writeError(w, statusFor(err), err)
+			return
+		}
+		defer frc.Close()
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.FormatInt(h.Size, 10))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+		_, _ = io.Copy(w, tr)
+		return
+	}
 	rc, err := dc.Archive(r.Context(), r.PathValue("id"), p)
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return
 	}
 	defer rc.Close()
-	name := path.Base(p)
-	if name == "/" {
-		name = "root"
-	}
-	// A file comes back as itself; a folder (or anything else) as the tar Docker made of it.
-	if r.URL.Query().Get("kind") == "file" {
-		tr := tar.NewReader(rc)
-		if h, err := tr.Next(); err == nil && h.Typeflag == tar.TypeReg {
-			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Content-Length", strconv.FormatInt(h.Size, 10))
-			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-			_, _ = io.Copy(w, tr)
-			return
-		}
-		writeError(w, http.StatusBadRequest, errors.New("not a regular file"))
-		return
-	}
 	w.Header().Set("Content-Type", "application/x-tar")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name + ".tar"}))
 	_, _ = io.Copy(w, rc)
