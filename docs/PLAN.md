@@ -33,6 +33,12 @@ Not goals for version 1: Windows or Linux, a menu bar app, extensions, multi-use
 
 Each maps to a Rancher Desktop screen people use most.
 
+### Monitor (added during the build)
+- Live graphs for the selected profile, sampled every 2 seconds only while a page is watching
+  (stops 5 minutes after the last viewer), with an hour of history: VM CPU and memory gauges with
+  1 minute, 15 minute and 1 hour averages; CPU and memory by container; network; disk I/O; and the
+  CPU and memory the VM costs the Mac. No power figures.
+
 ### 1. General (home)
 - Colima status per profile: running or stopped, runtime, architecture, CPUs, memory, disk,
   Kubernetes on or off, address. From `colima list --json` and `colima status --json -p <profile>`.
@@ -112,8 +118,15 @@ The Docker socket controls everything in the VM, and any web page the user visit
 to localhost. So:
 
 - Listen on `127.0.0.1` only. No flag to change that in version 1.
-- A random token is generated at each start and passed in the URL opened in the browser; the page
-  swaps it for an `HttpOnly`, `SameSite=Strict` cookie. Every API call needs it.
+- A random token is generated on first run, kept in `~/Library/Application Support/colima-dashboard/session`
+  (mode 0600) so restarts do not sign the browser out, and passed in the URL opened in the browser;
+  the page swaps it for an `HttpOnly`, `SameSite=Strict` cookie. Every API call needs it.
+  `--new-token` replaces it. Requests with `Sec-Fetch-Site: cross-site` or `same-site` are refused.
+- Signed out, the page shows a locked screen with one button: the server opens the signed-in link
+  in the default browser of the user running it (what `colima-dashboard open` does). It never sends
+  the token to the page, and is limited to once every 5 seconds. It does not open a Terminal window:
+  that would add nothing, and a page that could run commands in Terminal is the thing the token
+  exists to prevent.
 - Reject requests whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` (DNS rebinding).
 - Reject state-changing requests whose `Origin` is not the UI's own.
 - A strict Content-Security-Policy; no third-party scripts or fonts.
