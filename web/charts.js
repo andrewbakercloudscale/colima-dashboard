@@ -69,7 +69,7 @@ function donut(segments, size = 168, center) {
 function niceMax(v) {
   if (!(v > 0)) return 1;
   const p = Math.pow(10, Math.floor(Math.log10(v)));
-  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+  for (const m of [1, 2, 3, 4, 5, 6, 8, 10]) // halves stay round: 1.5 GB, not 1.25 if (m * p >= v) return m * p;
   return 10 * p;
 }
 
@@ -79,14 +79,16 @@ function clock(ms, seconds) {
 
 // timeChart: area (stacked) or line chart over time with gridlines, time axis, hover tooltip and
 // a legend. series: [{name, color, values: [number|null]}]; times: [ms]. One y axis only.
+// The plot is an SVG stretched to the card's width; axis labels are HTML around it, so the text
+// is never stretched and always sits a gutter away from the plot and the card's edges.
 function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFixed(1), yMax, height = 190, empty = "Collecting…", gapMs = 6500 }) {
   const wrap = document.createElement("div");
   wrap.className = "tchart";
-  const W = 600, H = height, L = 46, R = 8, T = 10, B = 24;
   if (times.length < 2) {
     wrap.append(Object.assign(document.createElement("p"), { className: "muted small chart-empty", textContent: empty }));
     return wrap;
   }
+  const W = 600, H = Math.max(120, height - 34), PAD = 6; // PAD keeps the top line and peaks off the edge
   const n = times.length;
   // The x axis spans the chosen range, not just the data, so a fresh page fills in from the right.
   const t0 = domain ? Math.min(domain[0], times[0]) : times[0];
@@ -94,7 +96,7 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
   const fine = t1 - t0 <= 6 * 60e3;
   const days = t1 - t0 > 36 * 3600e3; // long ranges label dates, not times
   const label = (t) => days ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short" }) : clock(t, fine);
-  const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
+  const x = (t) => ((t - t0) / Math.max(1, t1 - t0)) * W;
   // stacked tops per series
   const tops = series.map(() => new Array(n).fill(0));
   let peak = 0;
@@ -107,19 +109,24 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
       peak = Math.max(peak, acc);
     });
   }
-  const max = yMax ?? niceMax(peak * 1.1);
-  const y = (v) => T + (1 - Math.min(v, max) / max) * (H - T - B);
+  const max = yMax ?? niceMax(peak * 1.15);
+  const y = (v) => PAD + (1 - Math.min(v, max) / max) * (H - PAD);
+  const tidy = (v) => String(fmt(v)).replace(/\.0+(?=\D|$)/, ""); // 50.0 KB/s -> 50 KB/s
+
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", preserveAspectRatio: "none", role: "img" });
-  // grid + y labels (recessive)
-  for (const f of [0, 0.5, 1]) {
+  root.style.setProperty("height", `${H}px`);
+  const yAxis = document.createElement("div");
+  yAxis.className = "tc-y";
+  yAxis.style.setProperty("height", `${H}px`);
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  for (const f of ticks) {
     const v = max * f;
-    root.append(svg("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }));
-    root.append(svg("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "axis" }, document.createTextNode(fmt(v))));
-  }
-  // time labels: start, middle, end
-  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
-    const t = t0 + (t1 - t0) * f;
-    root.append(svg("text", { x: x(t), y: H - 6, "text-anchor": f === 0 ? "start" : f === 1 ? "end" : "middle", class: "axis" }, document.createTextNode(label(t))));
+    root.append(svg("line", { x1: 0, x2: W, y1: y(v), y2: y(v), class: f === 0 ? "grid base" : "grid" }));
+    if (f === 0.25 || f === 0.75) continue; // label every other line: calmer axis
+    const lab = document.createElement("span");
+    lab.textContent = tidy(v);
+    lab.style.setProperty("top", `${(y(v) / H) * 100}%`);
+    yAxis.append(lab);
   }
   // gaps: a break where samples are more than 3 intervals apart
   const gapAt = (i) => i > 0 && times[i] - times[i - 1] > gapMs;
@@ -132,18 +139,17 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
       let d = "";
       for (let i = segStart; i < end; i++) d += `${i === segStart ? "M" : "L"}${x(times[i]).toFixed(1)},${y(tops[k][i]).toFixed(1)}`;
       line += d;
-      if (stacked || s.fill) {
-        let back = "";
-        for (let i = end - 1; i >= segStart; i--) {
-          const base = stacked && k > 0 ? tops[k - 1][i] : 0;
-          back += `L${x(times[i]).toFixed(1)},${y(base).toFixed(1)}`;
-        }
-        area += d + back + "Z";
+      let back = "";
+      for (let i = end - 1; i >= segStart; i--) {
+        const base = stacked && k > 0 ? tops[k - 1][i] : 0;
+        back += `L${x(times[i]).toFixed(1)},${y(base).toFixed(1)}`;
       }
+      area += d + back + "Z";
     };
     for (let i = 1; i <= n; i++) if (i === n || gapAt(i)) { flush(i); segStart = i; }
     if (area) {
-      const a = svg("path", { d: area, class: "area" });
+      // stacked charts are solid bands; line charts get a soft wash under the line
+      const a = svg("path", { d: area, class: stacked || s.fill ? "area" : "area soft" });
       a.style.setProperty("fill", color);
       root.append(a);
     }
@@ -152,16 +158,33 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
     root.append(p);
   });
   // hover layer
-  const cross = svg("line", { y1: T, y2: H - B, class: "cross", visibility: "hidden" });
-  const hit = svg("rect", { x: L, y: T, width: W - L - R, height: H - T - B, class: "hit" });
+  const cross = svg("line", { y1: 0, y2: H, class: "cross", visibility: "hidden" });
+  const hit = svg("rect", { x: 0, y: 0, width: W, height: H, class: "hit" });
   root.append(cross, hit);
+
+  const xAxis = document.createElement("div");
+  xAxis.className = "tc-x";
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    const lab = document.createElement("span");
+    lab.textContent = label(t0 + (t1 - t0) * f);
+    lab.style.setProperty("left", `${f * 100}%`);
+    lab.className = f === 0 ? "first" : f === 1 ? "last" : f === 0.5 ? "" : "q"; // q: dropped when narrow
+    xAxis.append(lab);
+  }
+  const plot = document.createElement("div");
+  plot.className = "tc-plot";
+  plot.append(root, xAxis);
+  const body = document.createElement("div");
+  body.className = "tc-body";
+  body.append(yAxis, plot);
+
   const tip = document.createElement("div");
   tip.className = "tip";
   tip.hidden = true;
   hit.addEventListener("pointermove", (e) => {
     const box = root.getBoundingClientRect();
     const px = ((e.clientX - box.left) / box.width) * W;
-    const t = t0 + ((px - L) / (W - L - R)) * (t1 - t0);
+    const t = t0 + (px / W) * (t1 - t0);
     let i = 0;
     while (i < n - 1 && Math.abs(times[i + 1] - t) < Math.abs(times[i] - t)) i++;
     cross.setAttribute("x1", x(times[i]));
@@ -181,11 +204,12 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
       tip.append(row);
     }
     tip.hidden = false;
-    const left = ((x(times[i]) / W) * box.width);
-    tip.style.left = `${Math.min(left + 12, box.width - 180)}px`;
+    const wbox = wrap.getBoundingClientRect();
+    const at = box.left - wbox.left + (x(times[i]) / W) * box.width;
+    tip.style.left = `${Math.max(0, Math.min(at + 12, wbox.width - 180))}px`;
   });
   hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip.hidden = true; });
-  wrap.append(root, tip);
+  wrap.append(body, tip);
   if (series.length > 1) wrap.append(legend(series.map((s) => ({ label: s.name, color: s.color }))));
   return wrap;
 }

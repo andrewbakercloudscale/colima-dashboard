@@ -489,7 +489,7 @@ async function renderContainers(main) {
       }
       for (const c of cs) tbody.append(containerRow(c));
     }
-    body.replaceChildren(el("table",
+    body.replaceChildren(el("table.ctable",
       el("thead", el("tr", ["Name", "Image", "State", "Ports", "Created", ""].map((h) => el("th", h)))), tbody));
   };
   const load = async () => {
@@ -518,11 +518,12 @@ function containerRow(c) {
   const paused = c.State === "paused";
   return el("tr",
     el("td", el("strong", name), el("div.muted.small.mono", short(c.Id))),
-    el("td.mono.small", c.Image),
-    el("td", el(`span.pill.${c.State}`, c.State), el("div.muted.small", c.Status)),
+    // an image whose tag moved on shows as a digest: keep it short, full value on hover
+    el("td.mono.small.trunc", { title: c.Image }, c.Image.startsWith("sha256:") ? c.Image.slice(0, 19) + "…" : c.Image),
+    el("td", el(`span.pill.${c.State}`, c.State), el("div.muted.small.nowrap", c.Status)),
     el("td", ports.length ? ports : el("span.muted", "–")),
     el("td.small", ago(c.Created)),
-    el("td.actions",
+    el("td.actions.wrap",
       running ? el("button.ghost.mini", { type: "button", onclick: act("stop") }, "Stop") : null,
       running ? el("button.ghost.mini", { type: "button", onclick: act("pause") }, "Pause") : null,
       paused ? el("button.ghost.mini", { type: "button", onclick: act("unpause") }, "Resume") : null,
@@ -686,7 +687,8 @@ function showFiles(id, name, kind = "container") {
     list.replaceChildren(el("p.muted.small", "Loading…"));
     const parts = dir.split("/").filter(Boolean);
     crumbs.replaceChildren(el("button.link", { type: "button", onclick: () => go("/") }, "/"),
-      ...parts.flatMap((p, i) => [el("span.muted", "/"),
+      // the root button is already "/", so the first folder needs no separator of its own
+      ...parts.flatMap((p, i) => [...(i ? [el("span.muted", "/")] : []),
         el("button.link", { type: "button", onclick: () => go("/" + parts.slice(0, i + 1).join("/")) }, p)]));
     let d;
     try { d = await api("GET", `${base}/files?path=${encodeURIComponent(dir)}`); }
@@ -1840,7 +1842,8 @@ async function pollMetrics() {
   metrics.error = d.error || "";
   for (const s of d.samples) {
     for (const id of Object.keys(s.containers || {})) {
-      if (!metrics.slots.has(id)) metrics.slots.set(id, metrics.slots.size < 7 ? metrics.slots.size : -1);
+      const key = cgroup(id); // compose run containers share their service's slot and color
+      if (!metrics.slots.has(key)) metrics.slots.set(key, metrics.slots.size); // color only; which groups get their own line is decided per chart
     }
   }
 }
@@ -1851,7 +1854,10 @@ const LONG = { "1d": 1, "7d": 7, "30d": 30 };
 const RANGE_LABELS = { "5m": "5 min", "15m": "15 min", "1h": "1 hour", "1d": "1 day", "7d": "7 days", "30d": "30 days" };
 
 function cname(id) { return metrics.names[id] || id.slice(0, 12); }
-function ccolor(id) { return Charts.seriesColor(metrics.slots.get(id) ?? -1); }
+// "shop-unit-tests-run-f78b48dee08e" (docker compose run) charts as "shop-unit-tests": one line per
+// service, not one per test run.
+function cgroup(id) { return cname(id).replace(/-run-[0-9a-f]{6,}$/, ""); }
+function ccolor(id) { return Charts.seriesColor(metrics.slots.get(cgroup(id)) ?? -1); }
 function rate(n) { return `${bytes(n)}/s`; }
 function pct(v) { return `${(v || 0).toFixed(v < 10 ? 1 : 0)}%`; }
 
@@ -1934,21 +1940,44 @@ function drawMonitor(dataOnly) {
       el("span.chip", `Disk read ${rate(g.diskRead)}  write ${rate(g.diskWrite)}`),
       el("span.chip", `${Object.keys(last.containers).length} running containers`)));
 
-  // containers, ordered by slot so colors and order follow the entity
-  const ids = [...new Set(win.flatMap((s) => Object.keys(s.containers || {})))].sort((a, b) => (metrics.slots.get(a) ?? 99) - (metrics.slots.get(b) ?? 99));
-  const named = ids.filter((id) => (metrics.slots.get(id) ?? -1) >= 0);
-  const others = ids.filter((id) => (metrics.slots.get(id) ?? -1) < 0);
+  // containers grouped by service (compose run containers join their service), ordered by slot
+  // so colors and order follow the entity
+  const ids = [...new Set(win.flatMap((s) => Object.keys(s.containers || {})))];
+  const members = new Map();
+  for (const id of ids) {
+    const k = cgroup(id);
+    if (!members.has(k)) members.set(k, []);
+    members.get(k).push(id);
+  }
+  const slotOf = (k) => metrics.slots.get(k) ?? -1;
   const OTHER = "var(--series-other)";
+  const sumOf = (list, cs, get) => {
+    let v = null;
+    for (const id of list) if (cs?.[id]) v = (v ?? 0) + get(cs[id]);
+    return v;
+  };
+  // Each chart names the 6 groups that use the most of what it shows over the range; the rest
+  // share one "N more" series. Colors stay with the group from chart to chart.
+  const TOP = 6;
+  const split = (get) => {
+    const total = (k) => win.reduce((a, s) => a + (sumOf(members.get(k), s.containers, get) ?? 0), 0);
+    const ranked = [...members.keys()].map((k) => [k, total(k)]).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    const named = ranked.slice(0, TOP).sort((a, b) => slotOf(a) - slotOf(b));
+    const rest = ranked.slice(TOP);
+    return { named, rest, restIds: rest.flatMap((k) => members.get(k)) };
+  };
   const byContainer = (get, rest) => {
-    const series = named.map((id) => ({ name: cname(id), color: ccolor(id), values: win.map((s) => (s.containers?.[id] ? get(s.containers[id]) : null)) }));
-    if (others.length) series.push({ name: `${others.length} more containers`, color: OTHER, values: win.map((s) => others.reduce((a, id) => a + (s.containers?.[id] ? get(s.containers[id]) : 0), 0)) });
-    if (rest) series.push({ name: "VM and system", color: "var(--series-system)", values: win.map((s) => { const r = rest(s); return r === null ? null : Math.max(0, r - ids.reduce((a, id) => a + (s.containers?.[id] ? get(s.containers[id]) : 0), 0)); }) });
+    const sp = split(get);
+    const series = sp.named.map((k) => ({ name: k, color: Charts.seriesColor(slotOf(k)), values: win.map((s) => sumOf(members.get(k), s.containers, get)) }));
+    if (sp.rest.length) series.push({ name: `${sp.rest.length} more`, color: OTHER, values: win.map((s) => sumOf(sp.restIds, s.containers, get) ?? 0) });
+    if (rest) series.push({ name: "VM and system", color: "var(--series-system)", values: win.map((s) => { const r = rest(s); return r === null ? null : Math.max(0, r - (sumOf(ids, s.containers, get) ?? 0)); }) });
     return series;
   };
 
-  // right now: CPU share donut
-  const nowSegs = named.map((id) => ({ label: cname(id), value: last.containers[id]?.cpu || 0, color: ccolor(id) }));
-  if (others.length) nowSegs.push({ label: `${others.length} more`, value: others.reduce((a, id) => a + (last.containers[id]?.cpu || 0), 0), color: OTHER });
+  // right now: CPU share donut, same groups as the CPU chart
+  const cpuSplit = split((c) => c.cpu || 0);
+  const nowSegs = cpuSplit.named.map((k) => ({ label: k, value: sumOf(members.get(k), last.containers, (c) => c.cpu || 0) ?? 0, color: Charts.seriesColor(slotOf(k)) }));
+  if (cpuSplit.rest.length) nowSegs.push({ label: `${cpuSplit.rest.length} more`, value: sumOf(cpuSplit.restIds, last.containers, (c) => c.cpu || 0) ?? 0, color: OTHER });
   const sysNow = Math.max(0, g.cpu - nowSegs.reduce((a, s) => a + s.value, 0));
   nowSegs.push({ label: "VM and system", value: sysNow, color: "var(--series-system)" });
   const rightNow = el("div.card.viz",
@@ -2058,19 +2087,19 @@ async function renderRuns(main) {
             j.unhealthy ? el("span.pill.warn", `${j.unhealthy} unhealthy`) : null)),
         el("td.mono", String(j.runs)),
         el("td.mono", j.passRate < 0 ? el("span.muted", "service") : `${pctRate(j.passRate)}`, j.fail ? el("div.muted.small", `${j.fail} failed`) : null),
-        el("td.mono", j.passRate < 0 ? "–" : dur(j.median)),
-        el("td.mono", j.passRate < 0 ? "–" : dur(j.p90)),
+        el("td.mono.nowrap", j.passRate < 0 ? "–" : dur(j.median)),
+        el("td.mono.nowrap", j.passRate < 0 ? "–" : dur(j.p90)),
         el("td", outcomePill(j.last.outcome), el("div.muted.small", `${whenAgo(j.last.t)}, ${dur(j.last.seconds)}`)),
         el("td", Charts.runBars(j.trend, dur))))))));
   const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.muted.small", `newest first, ${d.total} in all`)),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["When", "Container", "Result", "Exit code", "Took"].map((x) => el("th", x)))),
       shortBody(d.recent.slice(0, 100).map((r) => el("tr",
-        el("td.small", new Date(r.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })),
+        el("td.small.nowrap", new Date(r.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })),
         el("td", el("strong", r.name), el("div.muted.small.mono", r.job)),
         el("td", outcomePill(r.outcome), r.restarted ? el("span.muted.small", " restarted") : null),
         el("td.mono", String(r.exit)),
-        el("td.mono", dur(r.seconds))))))));
+        el("td.mono.nowrap", dur(r.seconds))))))));
   main.replaceChildren(head, stats, jobs, recent,
     recordingNote(d.recording, "A run counts as passed when it exits 0 by itself; stopping a container yourself is not a failure."));
 }
@@ -2127,7 +2156,7 @@ async function renderBuilds(main) {
           b.slower >= 1.2 ? el("span.pill.warn", `${Math.round((b.slower - 1) * 100)}% slower`) : null,
           b.failed ? el("span.pill.fail", `${b.failed} failed`) : null)),
         el("td.mono", String(b.builds)),
-        el("td.mono", dur(b.median)),
+        el("td.mono.nowrap", b.builds > b.failed ? dur(b.median) : "–"), // no completed build, no median
         el("td.mono", pctRate(b.cacheRate), el("div.muted.small", "of steps")),
         el("td", outcomePill(b.last.status === "Completed" ? "pass" : "fail"), el("div.muted.small", `${whenAgo(b.last.t)}, ${dur(b.last.seconds)}`)),
         el("td", Charts.runBars(b.trend, dur)))))))));
@@ -2135,11 +2164,11 @@ async function renderBuilds(main) {
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["When", "Image", "Result", "Steps", "Took"].map((x) => el("th", x)))),
       shortBody(d.recent.slice(0, 100).map((b) => el("tr",
-        el("td.small", new Date(b.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
+        el("td.small.nowrap", new Date(b.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
         el("td", el("strong.mono", b.name || "(unnamed)"), b.error ? el("div.small.bad-text", b.error) : null),
         el("td", outcomePill(b.status === "Completed" ? "pass" : "fail")),
-        el("td.mono", `${b.cached}/${b.steps} cached`),
-        el("td.mono", dur(b.seconds)))))))));
+        el("td.mono.nowrap", `${b.cached}/${b.steps} cached`),
+        el("td.mono.nowrap", dur(b.seconds)))))))));
   parts.push(recordingNote(d.recording, "Read from BuildKit's build history every 2 minutes."));
   main.replaceChildren(...parts);
 }
@@ -2161,13 +2190,15 @@ async function drawHistory(body, days) {
   const pctFmt = (v) => `${v.toFixed(v < 10 ? 1 : 0)}%`;
   const cards = [];
   const f = d.forecast;
-  if (f) {
+  if (f && !f.reliable) {
+    cards.push(el("div.notice.ok", el("strong", "VM disk: "), `${bytes(f.used)} of ${bytes(f.size)} used on your Mac. `,
+      "A forecast of when it fills appears after a day of history."));
+  } else if (f) {
     const full = f.days >= 0 && f.days < 3650;
     cards.push(el(`div.notice${full && f.days < 30 ? ".bad" : full && f.days < 90 ? "" : ".ok"}`,
       el("strong", "VM disk: "), `${bytes(f.used)} of ${bytes(f.size)} used on your Mac. `,
       f.perDay > 1 << 20 ? `Growing about ${bytes(f.perDay)} a day over the last ${f.window.toFixed(f.window < 2 ? 1 : 0)} days` : "Not growing",
       full ? `, so it fills in about ${Math.round(f.days)} days.` : ".",
-      f.reliable ? "" : " (Less than a day of history: an early estimate.)",
       full && f.days < 90 ? el("span", " ", el("a", { href: "#troubleshooting" }, "Clean up downloads"), " or prune unused images.") : null));
   }
   cards.push(el("div.viz-grid",

@@ -150,7 +150,15 @@ th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--lin
 th { font-size: 12px; color: var(--muted); font-weight: 600; }
 tr:last-child td { border-bottom: 0; }
 td.actions { text-align: right; white-space: nowrap; }
+td.nowrap { white-space: nowrap; }
 td.actions button { margin-left: 4px; }
+/* containers: running rows have eight buttons; let them wrap into two rows instead of pushing the
+   table past the card's edge */
+td.actions.wrap { white-space: normal; width: 300px; }
+td.actions.wrap button { margin: 2px 0 2px 4px; }
+td.trunc { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctable td:first-child strong { overflow-wrap: anywhere; }
+div.nowrap { white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
 tr.group td { background: var(--side); font-weight: 600; }
 
@@ -253,6 +261,7 @@ tr.group td { background: var(--side); font-weight: 600; }
 .seg { display: inline-flex; background: var(--head-band); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg button { border: 0; border-radius: 999px; padding: 6px 14px; background: transparent; color: var(--text); }
 .seg button.on { background: var(--hero-a); color: #fff; }
+@media (max-width: 700px) { .seg { max-width: 100%; overflow-x: auto; } .seg button { padding: 6px 10px; white-space: nowrap; } }
 
 .hero {
   background: linear-gradient(120deg, var(--hero-a), var(--hero-b));
@@ -283,20 +292,30 @@ tr.group td { background: var(--side); font-weight: 600; }
 .card.viz { padding: 0; overflow: hidden; border-radius: 16px; }
 .viz-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 16px; background: var(--head-band); border-bottom: 1px solid var(--line); }
 .viz-head h2 { margin: 0; font-size: 16px; }
-.card.viz > .tchart, .card.viz > .donut-wrap, .card.viz > .table-wrap, .card.viz > .empty { padding: 12px 16px 14px; }
+.card.viz > .tchart, .card.viz > .donut-wrap, .card.viz > .table-wrap, .card.viz > .empty { padding: 16px 20px 16px; }
 .tchart { position: relative; }
-.chart { width: 100%; height: 190px; display: block; overflow: visible; }
-.chart .grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.chart .axis { fill: var(--muted); font-size: 11px; }
-.chart .line { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.tc-body { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; padding: 4px 6px 0 0; }
+.tc-y { position: relative; min-width: 44px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tc-y span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; line-height: 1; }
+.tc-plot { min-width: 0; }
+.tc-x { position: relative; height: 22px; margin-top: 6px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tc-x span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.tc-x span.first { transform: none; }
+.tc-x span.last { transform: translateX(-100%); }
+@media (max-width: 700px) { .tc-x span.q { display: none; } }
+.chart { width: 100%; height: 156px; display: block; overflow: visible; }
+.chart .grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 2 4; }
+.chart .grid.base { stroke: var(--line); stroke-dasharray: none; }
+.chart .line { fill: none; stroke-width: 1.75; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .chart .area { opacity: .85; stroke: var(--panel); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart .area.soft { opacity: .10; stroke: none; }
 .chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .chart .hit { fill: transparent; cursor: crosshair; }
 .chart-empty { padding: 40px 0; text-align: center; }
 .tip { position: absolute; top: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; pointer-events: none; min-width: 160px; z-index: 2; }
 .tip strong { display: block; margin-bottom: 4px; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 13px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; padding-left: 54px; font-size: 13px; }
 .donut-wrap { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
 .donut .donut-big { fill: var(--text); font-size: 26px; font-weight: 750; }
 .donut .donut-small { fill: var(--muted); font-size: 13px; }

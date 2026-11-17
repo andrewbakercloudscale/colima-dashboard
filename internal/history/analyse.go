@@ -177,6 +177,12 @@ func DiskForecast(points []Point) *Forecast {
 	slope := fitSlope(xs, ys)
 	f := &Forecast{PerDay: slope, Days: -1, Used: last.DiskMac, Size: last.DiskSize, Window: xs[len(xs)-1] - xs[0]}
 	f.Reliable = f.Window >= 1
+	if !f.Reliable {
+		// A few hours say nothing about a month: one image pull would read as gigabytes a day
+		// and a disk "full in a week". Report use only until there is a day of history.
+		f.PerDay = 0
+		return f
+	}
 	if slope > 0 && last.DiskSize > last.DiskMac {
 		f.Days = float64(last.DiskSize-last.DiskMac) / slope
 	}
