@@ -6,6 +6,54 @@ troubleshooting) in one small binary, opened in your browser.
 
 **Status:** early release (0.1.0). See [docs/PLAN.md](docs/PLAN.md).
 
+![General page: welcome card, update check and profile status](docs/screenshots/general.png)
+
+## Why this instead of Rancher Desktop?
+
+Colima is a fast, free, open source container runtime for macOS, but it is command line only.
+Rancher Desktop gives you a window and buttons, at the cost of a much heavier stack. Colima
+Dashboard gives Colima the everyday screens of Rancher Desktop and keeps Colima's footprint.
+
+| | Colima + Colima Dashboard | Rancher Desktop 1.25 |
+|---|---|---|
+| Download | 3 MB dashboard, plus Colima and Lima from Homebrew | 671 MB |
+| Installed size | 11 MB dashboard + 10 MB Colima + 108 MB Lima | 1.5 GB app |
+| Kubernetes at first start | Off until you tick it | On by default (k3s), first start took 197 s on our Mac |
+| Default VM | 2 CPU, 2 GiB | 2 CPU, 6 GB (on a 32 GB Mac) |
+| Stop time | being measured now; figures go in the blog post | about 35 s, every run |
+| Leftovers after removal | `~/.colima` only | 59 GB of VM data, `~/.rd/bin` and PATH lines in shell profiles on our Mac |
+| Admin password | Never | Asked for by some settings |
+| Runs as | One Go binary and your browser | Electron app with its own bundled tools |
+
+Rancher Desktop figures are from our own runs on an Apple M5, 32 GB, macOS 27.2, with a fresh
+install. The full benchmark (start, stop, idle CPU and memory, builds, file I/O) and its scripts
+are in [`bench/`](bench/) and in the blog post this project was written for.
+
+**What you get over plain Colima:**
+
+- Start, stop and restart profiles with a progress view instead of a wall of log lines.
+- Containers, images, volumes and port forwards in tables, with start, stop, remove and logs.
+- Monitor: live CPU and memory graphs per VM and per container.
+- Kubernetes on or off, services list and a reset button.
+- Preferences for CPU, memory, disk, runtime, VM type, mount type, Rosetta and new profiles.
+- Diagnostics that find the usual Colima problems (missing buildx or credential helper, a
+  Rancher Desktop or Docker Desktop still installed, low disk) and show the fix.
+- Colour-coded VM, container and job logs.
+- Update checks for Colima and for the dashboard, which updates itself.
+
+**When to stay on Rancher Desktop:** you need Windows or Linux, a Kubernetes version picker,
+extensions, image scanning, or settings your IT team locks down centrally.
+
+## Screenshots
+
+| Diagnostics, each problem with its fix | Colour-coded VM logs |
+|---|---|
+| ![Diagnostics](docs/screenshots/diagnostics.png) | ![VM logs](docs/screenshots/logs.png) |
+
+| Preferences |
+|---|
+| ![Preferences](docs/screenshots/preferences.png) |
+
 ## Install
 
 Paste this into Terminal (needs [Homebrew](https://brew.sh)):
