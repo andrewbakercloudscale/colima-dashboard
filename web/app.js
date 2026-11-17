@@ -275,6 +275,7 @@ $("#profile").addEventListener("change", (e) => {
   safeSet("profile", state.profile);
   renderVMState();
   render();
+  refreshDiagBadge();
 });
 
 window.addEventListener("hashchange", render);
@@ -734,9 +735,6 @@ async function renderPreferences(main) {
     if (!await confirmBox("Apply settings?", isRunning() ? `Colima stops profile ${state.profile} and starts it again with these settings. Running containers stop.` : `Colima starts profile ${state.profile} with these settings.`, "Apply", false)) return;
     runJob("POST", `${P()}/actions/${isRunning() ? "apply" : "start"}`, opts, () => render());
   });
-  const danger = el("div.card", el("h2", "Delete this profile"),
-    el("p.muted", "Removes the VM with every container, image and volume in it. Colima's settings file for the profile goes too."),
-    el("button.danger", { type: "button", onclick: deleteProfile }, `Delete ${state.profile}…`));
   const newProf = el("input", { placeholder: "dev", pattern: "[A-Za-z0-9_-]+", "aria-label": "New profile name" });
   const create = el("button.ghost", { type: "button" }, "Create and start");
   create.addEventListener("click", () => {
@@ -745,7 +743,8 @@ async function renderPreferences(main) {
     runJob("POST", `/api/profiles/${encodeURIComponent(n)}/actions/start`, {}, () => { state.profile = n; safeSet("profile", n); refreshOverview().then(render); });
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
-  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, danger);
+  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles,
+    el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
 }
 
 async function deleteProfile() {
@@ -758,18 +757,114 @@ async function deleteProfile() {
 
 async function renderTroubleshooting(main) {
   const head = el("div.head",
-    el("div", el("h1", "Troubleshooting"), el("p.muted", "Checks for the usual Colima problems, each with its fix.")),
+    el("div", el("h1", "Troubleshooting"), el("p.muted", `Logs and resets for profile ${state.profile}. Checks with fixes are under Diagnostics.`)));
+  const logs = el("div.card", el("h2", "Logs"),
+    el("p.muted", "Colima's and the VM's own log files: start-up, the host agent and the VM console."),
+    el("button.ghost", { type: "button", onclick: () => showVMLogs() }, "Show logs"));
+  const cards = [logs];
+  const st = currentProfile();
+  if (isRunning() && st?.kubernetes) {
+    cards.push(el("div.card", el("h2", "Reset Kubernetes"),
+      el("p.muted", "Deletes the k3s cluster and creates an empty one. Workloads and Kubernetes data go; containers, images and volumes outside Kubernetes stay."),
+      el("button.ghost", { type: "button", onclick: resetKubernetes }, "Reset Kubernetes…")));
+  }
+  cards.push(el("div.card", el("h2", "Clean up downloads"),
+    el("p.muted", "Remove Colima's cached VM images and downloads. Profiles are not touched."),
+    el("button.ghost", { type: "button", onclick: pruneCache }, "Prune cached downloads")));
+  cards.push(el("div.card", el("h2", "Factory reset"),
+    el("p.muted", `Deletes profile ${state.profile}: the VM with every container, image and volume in it, and its settings. Start it again from General for a clean VM.`),
+    el("button.danger", { type: "button", onclick: deleteProfile }, `Delete ${state.profile}…`)));
+  main.replaceChildren(head, ...cards);
+}
+
+async function resetKubernetes() {
+  if (!await confirmBox("Reset Kubernetes?", `Colima deletes the k3s cluster in ${state.profile} and creates an empty one.`, "Reset", true)) return;
+  runJob("POST", `${P()}/actions/kubernetes-reset`, undefined, () => render());
+}
+
+// ---------- Diagnostics ----------
+
+async function renderDiagnostics(main) {
+  const head = el("div.head",
+    el("div", el("h1", "Diagnostics"), el("p.muted", "Checks for the usual Colima problems, each with its fix.")),
     el("div.toolbar", el("button.ghost", { type: "button", onclick: () => render() }, "Run again")));
   const checks = el("div.card", el("p.muted", "Checking…"));
-  const logs = el("div.card", el("h2", "VM logs"), el("button.ghost", { type: "button", onclick: () => showVMLogs() }, "Show Colima and VM logs"));
-  const tools = el("div.card", el("h2", "Clean up"),
-    el("p.muted", "Remove Colima's cached VM images and downloads. Running profiles are not touched."),
-    el("button.ghost", { type: "button", onclick: pruneCache }, "Prune cached downloads"));
-  main.replaceChildren(head, checks, logs, tools);
+  main.replaceChildren(head, checks);
   const list = await api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`);
-  checks.replaceChildren(el("h2", "Checks"), el("table", el("tbody", list.map((c) => el("tr",
+  setDiagBadge(list);
+  checks.replaceChildren(el("table", el("tbody", list.map((c) => el("tr",
     el("td", el(`span.pill.${c.state}`, c.state)),
     el("td", el("strong", c.title), el("div.muted.small", c.detail), c.fix ? copyRow(c.fix) : null))))));
+}
+
+function setDiagBadge(list) {
+  const b = $("#diagbadge");
+  const fails = list.filter((c) => c.state === "fail").length;
+  const warns = list.filter((c) => c.state === "warn").length;
+  const n = fails + warns;
+  b.hidden = n === 0;
+  b.textContent = String(n);
+  b.className = fails ? "badge" : "badge warn";
+  b.title = `${fails} failing, ${warns} warnings`;
+}
+
+async function refreshDiagBadge() {
+  try { setDiagBadge(await api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`)); } catch { /* badge stays as it was */ }
+}
+
+// ---------- Port Forwarding ----------
+
+async function renderPorts(main) {
+  const head = el("div.head",
+    el("div", el("h1", "Port Forwarding"), el("p.muted", "What you can reach on localhost. Colima forwards every published container port and Kubernetes LoadBalancer port by itself; there is nothing to switch on.")));
+  if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
+  const cCard = el("div.card", el("h2", "Containers"), el("p.muted", "Loading…"));
+  const kCard = currentProfile()?.kubernetes ? el("div.card", el("h2", "Kubernetes services"), el("p.muted", "Loading…")) : null;
+  main.replaceChildren(head, cCard, ...(kCard ? [kCard] : []));
+  const open = (port) => el("a", { href: `http://localhost:${port}`, target: "_blank", rel: "noopener noreferrer" }, `localhost:${port}`);
+  try {
+    const cs = await api("GET", `${P()}/containers`);
+    const rows = [];
+    for (const c of cs) {
+      if (c.State !== "running") continue;
+      const seen = new Set();
+      for (const p of c.Ports || []) {
+        if (!p.PublicPort || seen.has(p.PublicPort + p.Type)) continue;
+        seen.add(p.PublicPort + p.Type);
+        rows.push(el("tr",
+          el("td", el("strong", (c.Names[0] || "").replace(/^\//, ""))),
+          el("td", p.Type === "tcp" ? open(p.PublicPort) : el("span.mono", `localhost:${p.PublicPort}`)),
+          el("td.mono", `${p.PrivatePort}/${p.Type}`),
+          el("td.small.muted", p.IP && p.IP !== "0.0.0.0" && p.IP !== "::" ? `bound to ${p.IP}` : "all addresses")));
+      }
+    }
+    cCard.replaceChildren(el("h2", "Containers"), rows.length
+      ? el("table", el("thead", el("tr", ["Container", "On your Mac", "In the container", ""].map((h) => el("th", h)))), el("tbody", rows))
+      : el("p.muted", "No running container publishes a port. Publish one with ", el("code", "docker run -p 8080:80 …"), "."));
+  } catch (e) {
+    cCard.replaceChildren(el("h2", "Containers"), el("div.notice.bad", e.message));
+  }
+  if (!kCard) return;
+  try {
+    const svcs = await api("GET", `${P()}/kubernetes/services`);
+    const rows = [];
+    for (const s of svcs) {
+      for (const p of s.ports || []) {
+        const local = s.type === "LoadBalancer" ? p.port : s.type === "NodePort" ? p.nodePort : 0;
+        rows.push(el("tr",
+          el("td", el("strong", s.name), el("div.muted.small", s.namespace)),
+          el("td", s.type),
+          el("td.mono", `${p.port}/${(p.protocol || "TCP").toLowerCase()}`),
+          el("td", local ? open(local) : el("span.muted.small", "inside the cluster only"))));
+      }
+    }
+    kCard.replaceChildren(el("h2", "Kubernetes services"), rows.length
+      ? el("table", el("thead", el("tr", ["Service", "Type", "Port", "On your Mac"].map((h) => el("th", h)))), el("tbody", rows))
+      : el("p.muted", "No services."),
+      el("p.small.muted", "ClusterIP services are reachable inside the cluster only; reach one from the Mac with ", el("code", "kubectl port-forward"), "."));
+  } catch (e) {
+    kCard.replaceChildren(el("h2", "Kubernetes services"), el("div.notice.bad", e.message));
+  }
 }
 
 async function showVMLogs() {
@@ -800,6 +895,8 @@ const tabs = {
   kubernetes: renderKubernetes,
   preferences: renderPreferences,
   troubleshooting: renderTroubleshooting,
+  diagnostics: renderDiagnostics,
+  ports: renderPorts,
 };
 
 // Sidebar icons: a tinted tile per section.
@@ -811,7 +908,9 @@ const NAV_ICONS = {
   volumes: ["#b45309", "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"],
   kubernetes: ["#1d4ed8", "M12 2l8 4.5v9L12 20l-8-4.5v-9zM12 8v4m0 0l3.5 2M12 12l-3.5 2"],
   preferences: ["#475569", "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4"],
-  troubleshooting: ["#be123c", "M12 3l9 16H3zM12 10v4M12 17v.5"],
+  troubleshooting: ["#be123c", "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"],
+  diagnostics: ["#b91c1c", "M12 3l9 16H3zM12 10v4M12 17v.5"],
+  ports: ["#0e7490", "M4 8h12l-3-3M20 16H8l3 3"],
 };
 function decorateNav() {
   for (const a of document.querySelectorAll("#nav a")) {
@@ -836,6 +935,9 @@ async function boot() {
   await render();
   // Status in the sidebar stays current; the open tab refreshes itself where it matters.
   setInterval(() => { if (!document.hidden) refreshOverview(); }, 5000);
+  // The Diagnostics count in the sidebar, like Rancher Desktop's.
+  refreshDiagBadge();
+  setInterval(() => { if (!document.hidden) refreshDiagBadge(); }, 5 * 60 * 1000);
   // Re-attach to a job still running from before a reload.
   const running = (state.overview?.jobs || []).filter((j) => !j.done).sort((a, b) => a.started < b.started ? 1 : -1)[0];
   if (running) followJob(running, () => render());

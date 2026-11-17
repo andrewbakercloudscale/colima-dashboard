@@ -221,6 +221,26 @@ func rdPathFiles(home string) []string {
 // latestCheck asks GitHub for the newest colima release. It sends nothing about this Mac.
 func (s *Server) latestCheck(ctx context.Context, current string) Check {
 	c := Check{ID: "latest", Title: "colima is up to date", State: "skip"}
+	latest, detail := s.latestRelease(ctx)
+	if latest == "" {
+		c.Detail = detail
+		return c
+	}
+	if latest == strings.TrimPrefix(current, "v") {
+		c.State, c.Detail = "pass", "latest is "+latest
+	} else {
+		c.State, c.Detail, c.Fix = "warn", fmt.Sprintf("you have %s, latest is %s", current, latest), "brew upgrade colima"
+	}
+	return c
+}
+
+// latestRelease asks GitHub at most once every 6 hours: the sidebar badge runs the checks too.
+func (s *Server) latestRelease(ctx context.Context) (tag, detail string) {
+	s.latestMu.Lock()
+	defer s.latestMu.Unlock()
+	if s.latestTag != "" && time.Since(s.latestAt) < 6*time.Hour {
+		return s.latestTag, ""
+	}
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/abiosoft/colima/releases/latest", nil)
@@ -228,24 +248,17 @@ func (s *Server) latestCheck(ctx context.Context, current string) Check {
 	req.Header.Set("User-Agent", "colima-dashboard")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		c.Detail = "could not reach GitHub"
-		return c
+		return "", "could not reach GitHub"
 	}
 	defer resp.Body.Close()
 	var rel struct {
 		TagName string `json:"tag_name"`
 	}
 	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&rel) != nil || rel.TagName == "" {
-		c.Detail = "GitHub did not say"
-		return c
+		return "", "GitHub did not say"
 	}
-	latest := strings.TrimPrefix(rel.TagName, "v")
-	if latest == strings.TrimPrefix(current, "v") {
-		c.State, c.Detail = "pass", "latest is "+latest
-	} else {
-		c.State, c.Detail, c.Fix = "warn", fmt.Sprintf("you have %s, latest is %s", current, latest), "brew upgrade colima"
-	}
-	return c
+	s.latestTag, s.latestAt = strings.TrimPrefix(rel.TagName, "v"), time.Now()
+	return s.latestTag, ""
 }
 
 func kubeCurrentContext(ctx context.Context) (string, error) {
