@@ -91,10 +91,12 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-// extendPath adds Homebrew's bin directories: launchd starts agents with a bare PATH.
+// extendPath adds Homebrew's and the user's bin directories: launchd starts agents with a
+// bare PATH, so without this a LaunchAgent cannot find colima, docker or limactl.
 func extendPath() {
 	path := os.Getenv("PATH")
-	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin")} {
 		if !strings.Contains(":"+path+":", ":"+dir+":") {
 			path += ":" + dir
 		}
@@ -107,7 +109,24 @@ func colimaHome() string {
 		return h
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".colima")
+	dot := filepath.Join(home, ".colima")
+	if _, err := os.Stat(dot); err == nil {
+		return dot
+	}
+	// Colima falls back to the XDG config folder when ~/.colima does not exist.
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	if alt := filepath.Join(xdg, "colima"); dirExists(alt) {
+		return alt
+	}
+	return dot
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func tokenPath() string {

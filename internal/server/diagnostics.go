@@ -197,10 +197,23 @@ func rancherLeftovers() []Check {
 			Detail: "Rancher Desktop is gone but its data (VM disks) remains at " + data,
 			Fix:    `rm -rf ~/Library/Application\ Support/rancher-desktop`})
 	}
-	if strings.Contains(os.Getenv("PATH"), "/.rd/bin") {
+	// Read the shell profiles rather than our own PATH: run as a LaunchAgent we never see it.
+	if files := rdPathFiles(home); len(files) > 0 {
 		out = append(out, Check{ID: "rancher-path", Title: "Rancher Desktop leftovers", State: "warn",
-			Detail: "~/.rd/bin is still on PATH (added to your shell profile by Rancher Desktop)",
-			Fix:    "remove the ~/.rd/bin line from ~/.zshrc and ~/.bash_profile"})
+			Detail: "~/.rd/bin is still added to PATH by " + strings.Join(files, ", ") + " (Rancher Desktop wrote it)",
+			Fix:    "remove the lines mentioning .rd/bin from " + strings.Join(files, " and ")})
+	}
+	return out
+}
+
+// rdPathFiles lists the shell profiles that still put Rancher Desktop's ~/.rd/bin on PATH.
+func rdPathFiles(home string) []string {
+	var out []string
+	for _, f := range []string{".zshrc", ".zprofile", ".bash_profile", ".bashrc", ".profile"} {
+		b, err := os.ReadFile(filepath.Join(home, f))
+		if err == nil && strings.Contains(string(b), ".rd/bin") {
+			out = append(out, "~/"+f)
+		}
 	}
 	return out
 }
