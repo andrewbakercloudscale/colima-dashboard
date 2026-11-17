@@ -33,8 +33,13 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 
 - Start, stop and restart profiles with a progress view instead of a wall of log lines.
 - Containers, images, volumes and port forwards in tables, with start, stop, remove and logs.
-- Monitor: live CPU and memory graphs per VM and per container.
-- Kubernetes on or off, services list and a reset button.
+- A shell into any running container in the page, and a file browser to view and download its files.
+- Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history.
+- Runs and tests and Builds: pass rates, flaky and slowing tests, build times and cache hits.
+- Kubernetes: on or off, k3s version picker, Traefik on or off, workloads with logs, reset.
+- Snapshots: save a stopped profile in a second (APFS clones) and roll back to it.
+- A menu bar icon with each profile's state, start and stop, and notifications when a test
+  container or a build fails.
 - Preferences for CPU, memory, disk, runtime, VM type, mount type, Rosetta and new profiles.
 - Diagnostics that find the usual Colima problems (missing buildx or credential helper, a
   Rancher Desktop or Docker Desktop still installed, low disk), each with a button that runs
@@ -42,8 +47,8 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Colour-coded VM, container and job logs.
 - Update checks for Colima and for the dashboard, which updates itself.
 
-**When to stay on Rancher Desktop:** you need Windows or Linux, a Kubernetes version picker,
-extensions, snapshots, or settings your IT team locks down centrally.
+**When to stay on Rancher Desktop:** you need Windows or Linux, Docker Desktop extensions, or
+settings your IT team locks down centrally.
 
 ## Screenshots
 
@@ -85,10 +90,16 @@ go build -o colima-dashboard ./cmd/colima-dashboard
 ./colima-dashboard install-service   # start at login
 ```
 
+Plain `go build` leaves out the menu bar icon, which is Swift: `bash scripts/build-menubar.sh`
+then `go build -tags menubar ./cmd/colima-dashboard` includes it (needs the Xcode command line
+tools). Release builds always include it.
+
 Screens: General, Monitor (live graphs per VM and per container, plus 1, 7 and 30 day history
-with a forecast of when the VM disk fills), Containers, Runs and tests (every container run:
-pass rate, median and slowest times, flaky and slowing tests, out of memory kills), Builds (build
-times and cache hit rate per image), Images, Volumes, Kubernetes, Preferences and Troubleshooting.
+with a forecast of when the VM disk fills), Containers (with a shell and a file browser), Runs
+and tests (every container run: pass rate, median and slowest times, flaky and slowing tests, out
+of memory kills), Builds (build times and cache hit rate per image), Images, Volumes, Port
+Forwarding, Kubernetes (version, Traefik, workloads and logs), Snapshots, Troubleshooting,
+Diagnostics and Preferences (including alerts and the menu bar icon).
 
 - Runs at `http://colima.localhost:7766` (or `http://127.0.0.1:7766`), on this Mac only.
 - One Go binary with the page built in; no Electron, no Node, no runtime to install.
@@ -106,4 +117,5 @@ folder, the PATH a LaunchAgent gets) and [jsynowiec/ColimaUI](https://github.com
 
 ## Licence
 
-Apache 2.0. See [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE). The in-page terminal is [xterm.js](https://xtermjs.org)
+(MIT, `web/vendor/XTERM-LICENSE`), shipped inside the binary.

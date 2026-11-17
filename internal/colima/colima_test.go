@@ -104,3 +104,46 @@ func TestNames(t *testing.T) {
 		t.Fatal("lima instance names")
 	}
 }
+
+func TestKubeSettings(t *testing.T) {
+	ks := parseKubeSettings(`runtime: docker
+kubernetes:
+  # Enable kubernetes.
+  enabled: false
+  version: v1.35.0+k3s1
+  k3sArgs:
+    - --disable=traefik
+    - "--disable=servicelb,traefik"
+  port: 0
+network:
+  address: false
+`)
+	if ks.Version != "v1.35.0+k3s1" || len(ks.K3sArgs) != 2 || ks.K3sArgs[1] != "--disable=servicelb,traefik" {
+		t.Fatalf("parsed %+v", ks)
+	}
+	if ks.TraefikOn() {
+		t.Error("traefik should be off")
+	}
+	on := ks.WithTraefik(true)
+	if len(on) != 1 || on[0] != "--disable=servicelb" {
+		t.Errorf("WithTraefik(true) = %q", on)
+	}
+	if (KubeSettings{K3sArgs: on}).TraefikOn() != true {
+		t.Error("traefik should be on")
+	}
+	if got := parseKubeSettings("kubernetes:\n  k3sArgs: []\n").WithTraefik(false); len(got) != 1 || got[0] != "--disable=traefik" {
+		t.Errorf("empty list off: %q", got)
+	}
+	args, err := StartOptions{KubernetesVersion: "v1.33.5+k3s1", SetK3sArgs: true, K3sArgs: on}.Args()
+	if err != nil || strings.Join(args, " ") != `--kubernetes-version v1.33.5+k3s1 --k3s-arg="--disable=servicelb"` {
+		t.Errorf("args %q %v", args, err)
+	}
+	if args, _ := (StartOptions{SetK3sArgs: true}).Args(); len(args) != 1 || args[0] != "--k3s-arg=" {
+		t.Errorf("empty k3s args: %q", args)
+	}
+	for _, bad := range []string{"1.33", "v1.33.5", "v1.33.5+k3s1; rm", "latest"} {
+		if _, err := (StartOptions{KubernetesVersion: bad}).Args(); err == nil {
+			t.Errorf("accepted version %q", bad)
+		}
+	}
+}

@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -169,7 +171,19 @@ type StartOptions struct {
 	MountType  string `json:"mountType"` // virtiofs | sshfs | 9p
 	Rosetta    *bool  `json:"rosetta"`
 	Kubernetes *bool  `json:"kubernetes"`
+	// KubernetesVersion is a k3s release such as v1.33.5+k3s1.
+	KubernetesVersion string `json:"kubernetesVersion"`
+	// Traefik turns k3s's bundled ingress on or off. The server turns it into K3sArgs.
+	Traefik *bool `json:"traefik"`
+	// K3sArgs, when SetK3sArgs, replaces the profile's k3s arguments (an empty list clears them).
+	K3sArgs    []string `json:"-"`
+	SetK3sArgs bool     `json:"-"`
 }
+
+var k3sVersionRe = regexp.MustCompile(`^v1\.[0-9]{1,3}\.[0-9]{1,3}\+k3s[0-9]{1,3}$`)
+
+// ValidK3sVersion reports whether v looks like a k3s release tag.
+func ValidK3sVersion(v string) bool { return k3sVersionRe.MatchString(v) }
 
 var allowed = map[string]map[string]bool{
 	"runtime":   {"docker": true, "containerd": true},
@@ -216,6 +230,24 @@ func (o StartOptions) Args() ([]string, error) {
 	}
 	if o.Kubernetes != nil {
 		args = append(args, fmt.Sprintf("--kubernetes=%t", *o.Kubernetes))
+	}
+	if o.KubernetesVersion != "" {
+		if !ValidK3sVersion(o.KubernetesVersion) {
+			return nil, fmt.Errorf("kubernetes version %q is not a k3s release (like v1.33.5+k3s1)", o.KubernetesVersion)
+		}
+		args = append(args, "--kubernetes-version", o.KubernetesVersion)
+	}
+	if o.SetK3sArgs {
+		if len(o.K3sArgs) == 0 {
+			args = append(args, "--k3s-arg=") // an empty list: no extra k3s arguments
+		}
+		for _, a := range o.K3sArgs {
+			if !strings.HasPrefix(a, "--") || strings.ContainsAny(a, "\n\r") {
+				return nil, fmt.Errorf("k3s argument %q is not a flag", a)
+			}
+			// colima reads each value as CSV, so quote it to keep commas inside one argument.
+			args = append(args, `--k3s-arg="`+strings.ReplaceAll(a, `"`, `""`)+`"`)
+		}
 	}
 	return args, nil
 }
@@ -321,6 +353,15 @@ func (c *Client) Kubectl(ctx context.Context, profile string, args ...string) (s
 	return string(out), err
 }
 
+// KubectlStream runs kubectl inside the profile's VM and copies its output to w as it arrives.
+func (c *Client) KubectlStream(ctx context.Context, profile string, w io.Writer, args ...string) error {
+	if !ValidProfile(profile) {
+		return fmt.Errorf("invalid profile name %q", profile)
+	}
+	full := append([]string{"ssh", "-p", profile, "--", "sudo", "k3s", "kubectl"}, args...)
+	return c.Runner.Stream(ctx, w, c.Bin, full...)
+}
+
 func (c *Client) claim(profile, op string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -338,4 +379,114 @@ func (c *Client) release(profile string) {
 	c.mu.Lock()
 	delete(c.busy, profile)
 	c.mu.Unlock()
+}
+
+// KubeSettings are the kubernetes settings saved in a profile's colima.yaml.
+type KubeSettings struct {
+	Version string   `json:"version"`
+	K3sArgs []string `json:"k3sArgs"`
+}
+
+// ReadKubeSettings reads the kubernetes block of <colimaHome>/<profile>/colima.yaml. It is a
+// small line reader for the layout colima writes, not a general YAML parser.
+func ReadKubeSettings(colimaHome, profile string) (KubeSettings, error) {
+	var ks KubeSettings
+	if !ValidProfile(profile) {
+		return ks, fmt.Errorf("invalid profile name %q", profile)
+	}
+	b, err := os.ReadFile(filepath.Join(colimaHome, profile, "colima.yaml"))
+	if err != nil {
+		return ks, err
+	}
+	return parseKubeSettings(string(b)), nil
+}
+
+func parseKubeSettings(text string) KubeSettings {
+	ks := KubeSettings{K3sArgs: []string{}}
+	inKube, inArgs := false, false
+	unquote := func(v string) string {
+		v = strings.TrimSpace(v)
+		if i := strings.Index(v, " #"); i >= 0 {
+			v = strings.TrimSpace(v[:i])
+		}
+		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+			v = v[1 : len(v)-1]
+		}
+		return v
+	}
+	for _, line := range strings.Split(text, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if indent == 0 {
+			inKube = strings.HasPrefix(trim, "kubernetes:")
+			inArgs = false
+			continue
+		}
+		if !inKube {
+			continue
+		}
+		if inArgs && strings.HasPrefix(trim, "- ") {
+			ks.K3sArgs = append(ks.K3sArgs, unquote(trim[2:]))
+			continue
+		}
+		inArgs = false
+		switch {
+		case strings.HasPrefix(trim, "version:"):
+			ks.Version = unquote(strings.TrimPrefix(trim, "version:"))
+		case strings.HasPrefix(trim, "k3sArgs:"):
+			rest := strings.TrimSpace(strings.TrimPrefix(trim, "k3sArgs:"))
+			if rest == "" {
+				inArgs = true
+			} else if strings.HasPrefix(rest, "[") {
+				for _, a := range strings.Split(strings.Trim(rest, "[]"), ",") {
+					if a = unquote(a); a != "" {
+						ks.K3sArgs = append(ks.K3sArgs, a)
+					}
+				}
+			}
+		}
+	}
+	return ks
+}
+
+// TraefikOn reports whether these k3s arguments leave Traefik enabled.
+func (ks KubeSettings) TraefikOn() bool {
+	for _, a := range ks.K3sArgs {
+		if v, ok := strings.CutPrefix(a, "--disable="); ok {
+			for _, c := range strings.Split(v, ",") {
+				if strings.TrimSpace(c) == "traefik" {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// WithTraefik returns the k3s arguments with Traefik switched on or off, other arguments kept.
+func (ks KubeSettings) WithTraefik(on bool) []string {
+	out := []string{}
+	for _, a := range ks.K3sArgs {
+		v, ok := strings.CutPrefix(a, "--disable=")
+		if !ok {
+			out = append(out, a)
+			continue
+		}
+		var keep []string
+		for _, c := range strings.Split(v, ",") {
+			if c = strings.TrimSpace(c); c != "" && c != "traefik" {
+				keep = append(keep, c)
+			}
+		}
+		if len(keep) > 0 {
+			out = append(out, "--disable="+strings.Join(keep, ","))
+		}
+	}
+	if !on {
+		out = append(out, "--disable=traefik")
+	}
+	return out
 }

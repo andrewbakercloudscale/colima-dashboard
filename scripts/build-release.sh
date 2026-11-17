@@ -14,9 +14,10 @@ fi
 cd "$(dirname "$0")/.."
 rm -rf dist
 mkdir -p dist
+bash scripts/build-menubar.sh
 for arch in arm64 amd64; do
     work="$(mktemp -d)"
-    CGO_ENABLED=0 GOOS=darwin GOARCH="${arch}" go build -trimpath \
+    CGO_ENABLED=0 GOOS=darwin GOARCH="${arch}" go build -trimpath -tags menubar \
         -ldflags "-s -w -X main.version=${VERSION}" -o "${work}/colima-dashboard" ./cmd/colima-dashboard
     cp LICENSE README.md "${work}/"
     tar -C "${work}" -czf "dist/colima-dashboard_${VERSION}_darwin_${arch}.tar.gz" colima-dashboard LICENSE README.md

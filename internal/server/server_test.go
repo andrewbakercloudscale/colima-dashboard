@@ -250,3 +250,20 @@ func TestParseServices(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestIndexStyleNonce(t *testing.T) {
+	s := newTest(t)
+	s.opt.Assets = fstest.MapFS{"index.html": {Data: []byte(`<meta name="style-nonce" content="{{STYLE_NONCE}}">`)}}
+	a := do(s, "GET", "/", withCookie)
+	b := do(s, "GET", "/", withCookie)
+	csp := a.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "style-src 'self' 'nonce-") || strings.Contains(csp, "unsafe-inline") {
+		t.Fatalf("CSP: %q", csp)
+	}
+	if strings.Contains(a.Body.String(), "{{STYLE_NONCE}}") || a.Body.String() == b.Body.String() {
+		t.Fatalf("nonce not filled or not fresh: %q %q", a.Body.String(), b.Body.String())
+	}
+	if !strings.Contains(csp, strings.TrimSuffix(strings.TrimPrefix(a.Body.String(), `<meta name="style-nonce" content="`), `">`)) {
+		t.Fatalf("page nonce is not the CSP nonce")
+	}
+}

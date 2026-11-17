@@ -38,12 +38,17 @@ type Recorder struct {
 	ColimaHome string
 	Guest      GuestAverages
 	Logf       func(format string, a ...any)
+	// OnRun and OnBuild, when set, hear about each run and each build as they are recorded
+	// (builds finished before the recorder started are stored but not passed on).
+	OnRun   func(profile string, run Run)
+	OnBuild func(profile string, b Build)
 
 	mu       sync.Mutex
 	watching map[string]context.CancelFunc
 	buildsAt map[string]time.Time
 	seenRefs map[string]map[string]bool
 	buildErr map[string]string
+	began    time.Time
 }
 
 // Run watches until ctx ends.
@@ -53,6 +58,7 @@ func (r *Recorder) Run(ctx context.Context) {
 	r.buildsAt = map[string]time.Time{}
 	r.seenRefs = map[string]map[string]bool{}
 	r.buildErr = map[string]string{}
+	r.began = time.Now()
 	r.mu.Unlock()
 	r.Store.Prune(time.Now())
 	scan := time.NewTicker(scanEvery)
@@ -280,6 +286,9 @@ func (r *Recorder) events(ctx context.Context, profile string, dc *docker.Client
 					if err := r.Store.AddRun(profile, run); err != nil {
 						r.logf("history: %v", err)
 					}
+					if r.OnRun != nil {
+						r.OnRun(profile, run)
+					}
 				}
 			}
 			body.Close()
@@ -464,6 +473,12 @@ func (r *Recorder) PollBuilds(ctx context.Context, profile string) {
 		seen[b.Ref] = true
 		if err := r.Store.AddBuild(profile, b); err != nil {
 			r.logf("history: %v", err)
+		}
+		r.mu.Lock()
+		began := r.began
+		r.mu.Unlock()
+		if r.OnBuild != nil && b.T.After(began) {
+			r.OnBuild(profile, b)
 		}
 	}
 	r.mu.Lock()
