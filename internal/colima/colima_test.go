@@ -76,6 +76,18 @@ func TestApplyStopsThenStarts(t *testing.T) {
 	}
 }
 
+func TestKubernetesReset(t *testing.T) {
+	r := &rec{}
+	c := New("colima")
+	c.Runner = r
+	if err := c.Run(context.Background(), io.Discard, ActionK8sReset, "dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.runs, " | "); got != "kubernetes reset -p dev" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestOneOperationPerProfile(t *testing.T) {
 	c := New("colima")
 	if err := c.Claim("dev", "start"); err != nil {

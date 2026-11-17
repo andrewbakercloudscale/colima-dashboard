@@ -48,6 +48,9 @@ type Server struct {
 	opt        Options
 	unlockMu   sync.Mutex
 	lastUnlock time.Time
+	latestMu   sync.Mutex
+	latestTag  string    // newest colima release seen on GitHub
+	latestAt   time.Time // when latestTag was fetched; refetched after 6 hours
 	jobs       *Jobs
 	mux        *http.ServeMux
 }

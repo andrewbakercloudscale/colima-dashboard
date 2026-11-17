@@ -239,3 +239,14 @@ func TestSessionReportsSignIn(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestParseServices(t *testing.T) {
+	in := `{"items":[{"metadata":{"name":"web","namespace":"default"},"spec":{"type":"LoadBalancer","ports":[{"protocol":"TCP","port":8080,"targetPort":80,"nodePort":31234}]}}]}`
+	got, err := parseServices([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "web" || got[0].Type != "LoadBalancer" || got[0].Ports[0].Port != 8080 || got[0].Ports[0].NodePort != 31234 {
+		t.Fatalf("got %+v", got)
+	}
+}

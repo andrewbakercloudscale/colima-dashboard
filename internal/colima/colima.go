@@ -232,6 +232,8 @@ const (
 	ActionPrune   Action = "prune"
 	// ActionApply stops the profile if it runs, then starts it with new settings.
 	ActionApply Action = "apply"
+	// ActionK8sReset deletes and recreates the profile's k3s cluster (colima kubernetes reset).
+	ActionK8sReset Action = "kubernetes-reset"
 )
 
 // Run runs an action on a profile, streaming output to w. Only one action per profile runs at once.
@@ -272,6 +274,8 @@ func (c *Client) RunClaimed(ctx context.Context, w io.Writer, action Action, pro
 		steps = [][]string{{"delete", "-f", "-p", profile}}
 	case ActionPrune:
 		steps = [][]string{{"prune", "-f"}}
+	case ActionK8sReset:
+		steps = [][]string{{"kubernetes", "reset", "-p", profile}}
 	default:
 		return fmt.Errorf("unknown action %q", action)
 	}

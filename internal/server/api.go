@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -36,6 +37,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/profiles/{p}/metrics", s.auth(s.apiMetrics))
 	m.HandleFunc("GET /api/profiles/{p}/vmlogs", s.auth(s.apiVMLogs))
 	m.HandleFunc("GET /api/profiles/{p}/kubernetes", s.auth(s.apiKubernetes))
+	m.HandleFunc("GET /api/profiles/{p}/kubernetes/services", s.auth(s.apiK8sServices))
 
 	m.HandleFunc("GET /api/profiles/{p}/containers", s.auth(s.apiContainers))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}", s.auth(s.apiInspect))
@@ -114,7 +116,7 @@ func (s *Server) apiProfileAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-	case colima.ActionStop, colima.ActionRestart, colima.ActionDelete:
+	case colima.ActionStop, colima.ActionRestart, colima.ActionDelete, colima.ActionK8sReset:
 	default:
 		writeError(w, http.StatusBadRequest, fmt.Errorf("unknown action %q", action))
 		return
@@ -575,6 +577,65 @@ func (s *Server) apiKubernetes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// K8sService is a Kubernetes service with the ports it exposes, for the Port Forwarding page.
+type K8sService struct {
+	Namespace string           `json:"namespace"`
+	Name      string           `json:"name"`
+	Type      string           `json:"type"`
+	Ports     []K8sServicePort `json:"ports"`
+}
+
+// K8sServicePort is one port of a service. On Colima, a LoadBalancer port is reachable on
+// localhost at Port (k3s's service load balancer plus Lima's port forwarding); a NodePort
+// on localhost at NodePort.
+type K8sServicePort struct {
+	Name       string `json:"name,omitempty"`
+	Protocol   string `json:"protocol"`
+	Port       int    `json:"port"`
+	TargetPort any    `json:"targetPort,omitempty"`
+	NodePort   int    `json:"nodePort,omitempty"`
+}
+
+func (s *Server) apiK8sServices(w http.ResponseWriter, r *http.Request) {
+	p := r.PathValue("p")
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	out, err := s.opt.Colima.Kubectl(ctx, p, "get", "services", "--all-namespaces", "-o", "json")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("kubectl get services: %w", err))
+		return
+	}
+	svcs, err := parseServices([]byte(out))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, svcs)
+}
+
+func parseServices(b []byte) ([]K8sService, error) {
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
+			} `json:"metadata"`
+			Spec struct {
+				Type  string           `json:"type"`
+				Ports []K8sServicePort `json:"ports"`
+			} `json:"spec"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil, fmt.Errorf("reading kubectl output: %w", err)
+	}
+	out := make([]K8sService, 0, len(list.Items))
+	for _, it := range list.Items {
+		out = append(out, K8sService{Namespace: it.Metadata.Namespace, Name: it.Metadata.Name, Type: it.Spec.Type, Ports: it.Spec.Ports})
+	}
+	return out, nil
 }
 
 // apiMetrics returns samples newer than ?since= (unix ms). Asking keeps the sampler running.
