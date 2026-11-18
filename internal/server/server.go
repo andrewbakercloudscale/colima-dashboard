@@ -63,6 +63,8 @@ type Options struct {
 		SetEnabled(on bool) error
 	}
 	// MenuBarAvailable says whether this build includes the menu bar icon.
+	// DataDir holds the dashboard's own files (settings, history); "" turns off what needs it.
+	DataDir          string
 	MenuBarAvailable bool
 	Logger           *log.Logger
 }
@@ -81,6 +83,8 @@ type Server struct {
 	shells     *shells
 	fwdOnce    sync.Once
 	fwds       *forwards
+	details    detailCache // container inspect summaries for the list
+	prom       promState
 }
 
 // New builds the handler.

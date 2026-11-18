@@ -375,8 +375,9 @@ func unschedulablePlan(p Pod, nodes []Node, pods map[string]*Pod, template bool)
 			fits = false
 		}
 		rec.CPUReq = cpuQuantity(v)
-		if c.CPULim > 0 && c.CPULim < v {
-			rec.CPULim = rec.CPUReq
+		// A limit beyond the whole node means nothing but overcommitment; bring it to the node.
+		if c.CPULim > n.CPUAlloc {
+			rec.CPULim = cpuQuantity(max(niceCPUDown(n.CPUAlloc), v))
 		}
 	}
 	if p.MemReq > freeMem && c.MemReq > 0 {
@@ -385,8 +386,8 @@ func unschedulablePlan(p Pod, nodes []Node, pods map[string]*Pod, template bool)
 			fits = false
 		}
 		rec.MemReq = memQuantity(v)
-		if c.MemLim > 0 && c.MemLim < v {
-			rec.MemLim = rec.MemReq
+		if c.MemLim > n.MemAlloc {
+			rec.MemLim = memQuantity(max(niceMemDown(n.MemAlloc), v))
 		}
 	}
 	vmWhy := fmt.Sprintf("Or give the Colima VM more room: it has %d CPUs and %d GB; %d CPUs and %d GB would fit this pod next to the others. Change it on the General page (the VM restarts).", need.HaveCPUs, need.HaveGB, need.CPUs, need.MemoryGB)

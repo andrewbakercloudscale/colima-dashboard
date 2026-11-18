@@ -36,6 +36,36 @@ function el(spec, attrs, ...children) {
   return node;
 }
 
+// Colour every button by what it does. Labels decide, so buttons added by any page script
+// (Kubernetes, Fix, palette, exports) pick it up without remembering a class. A .danger class
+// colours anything the labels miss; data-act-fixed on a button opts it out.
+const ACTS = [
+  ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
+  ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
+  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward)\b/],
+  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan)\b/],
+];
+function actOf(b) {
+  const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
+  for (const [act, re] of ACTS) if (t && re.test(t)) return act;
+  if (b.classList.contains("danger")) return "danger";
+  return t ? "neutral" : "";
+}
+const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact";
+function tagButtons(root = document) {
+  for (const b of root.querySelectorAll("button")) {
+    if (b.dataset.actFixed !== undefined || b.matches(NO_ACT)) continue;
+    const a = actOf(b);
+    if (b.dataset.act !== a) { if (a) b.dataset.act = a; else delete b.dataset.act; }
+  }
+}
+let tagQueued = false;
+new MutationObserver(() => {
+  if (tagQueued) return;
+  tagQueued = true;
+  requestAnimationFrame(() => { tagQueued = false; tagButtons(); });
+}).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
 async function api(method, path, body) {
   const opts = { method, headers: {}, credentials: "same-origin" };
   if (body !== undefined) {
@@ -305,9 +335,15 @@ async function refreshOverview() {
     }
     sel.replaceChildren(...(names.length ? names : ["default"]).map((n) => el("option", { value: n, selected: n === state.profile }, n)));
     renderVMState();
+    // Redraw the page when the profile's state really changes. A status that flips for one poll
+    // (colima slow to answer while the VM is flat out) must not blank the page, so a new state
+    // has to be seen twice in a row first; start, stop and restart redraw by themselves.
     const key = `${state.profile}:${currentProfile()?.status}`;
-    if (state.lastKey && state.lastKey !== key && $("#modal").hidden) render();
-    state.lastKey = key;
+    if (!state.lastKey || key === state.lastKey) { state.lastKey = key; state.pendingKey = ""; }
+    else if (state.lastKey.split(":")[0] !== state.profile || state.pendingKey === key) {
+      state.lastKey = key; state.pendingKey = "";
+      if ($("#modal").hidden) render();
+    } else state.pendingKey = key;
     $("#versions").textContent = `Colima Dashboard ${ov.version}` + (ov.colimaVersion ? ` · colima ${ov.colimaVersion}` : "");
     if (state.bootVersion && ov.version !== state.bootVersion) { location.reload(); return; }
     state.bootVersion = state.bootVersion || ov.version;
@@ -361,8 +397,10 @@ function startProfile(opts) {
 }
 
 async function render() {
-  const tab = (location.hash || "#general").slice(1);
+  // Hash routes take parameters: #containers?name=web-1&open=logs, #images?q=shop*.
+  const [tab, qs] = (location.hash || "#general").slice(1).split("?");
   state.tab = tabs[tab] ? tab : "general";
+  state.route = { page: state.tab, params: Object.fromEntries(new URLSearchParams(qs || "")) };
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("active", a.dataset.tab === state.tab);
   clearInterval(state.timer);
   const main = $("#main");
@@ -374,6 +412,25 @@ async function render() {
 }
 
 // ---------- General ----------
+
+// Small coloured icon squares for the General cards.
+const CHIP_PATHS = {
+  box: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
+  chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  cpu: '<path d="M4 18V6M4 18h16"/><path d="m7 14 3-4 3 2 5-6"/>',
+  mem: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 11v2M11 11v2M15 11v2M7 17v3M17 17v3"/>',
+  disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  net: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/>',
+  engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
+};
+function chip(name) {
+  const s = el("span.ichip");
+  s.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${CHIP_PATHS[name] || ""}</svg>`;
+  return s;
+}
+function cardHead(hue, ic, title, note) {
+  return el(`div.info-head.${hue}`, chip(ic), el("h2", title), note ? el("span.muted.small", note) : null);
+}
 
 async function renderGeneral(main) {
   const p = currentProfile();
@@ -391,21 +448,22 @@ async function renderGeneral(main) {
     // While it starts, the engine is not there yet: show the progress, not errors.
     head.lastChild.replaceChildren(el("button", { type: "button", disabled: true }, "Starting…"));
   }
-  // The VM at a glance: name and state on top, then one tile per setting.
+  // The VM at a glance: name and state on top, then one coloured tile per setting.
   const tone = !p ? "none" : running ? "on" : /ing$/i.test(p.status || "") ? "busy" : "off";
   const vm = el("section.card.vm-card",
     el("div.vm-head",
       el("div.vm-title", el("span.vm-label", "Profile"), el("h2", state.profile)),
       el(`span.status.${tone}`, el("i"), p ? p.status : "Not created")));
   if (p) {
-    const tile = (label, value) => el("div.tile", el("span.tile-label", label), el("span.tile-value", value));
+    const tile = (hue, ic, label, value) => el(`div.tile.${hue}`, chip(ic),
+      el("div.tile-text", el("span.tile-label", label), el("span.tile-value", value)));
     vm.append(el("div.tiles",
-      tile("Runtime", p.runtime || "–"),
-      tile("Architecture", p.arch || "–"),
-      tile("CPUs", String(p.cpus || "–")),
-      tile("Memory", gib(p.memory)),
-      tile("Disk", gib(p.disk)),
-      p.address ? tile("Address", p.address) : null));
+      tile("t1", "box", "Runtime", p.runtime || "–"),
+      tile("t7", "chip", "Architecture", p.arch || "–"),
+      tile("t3", "cpu", "CPUs", String(p.cpus || "–")),
+      tile("t2", "mem", "Memory", gib(p.memory)),
+      tile("t4", "disk", "Disk", gib(p.disk)),
+      p.address ? tile("t5", "net", "Address", p.address) : null));
   } else {
     vm.append(el("p.muted.vm-empty", "This profile does not exist yet. Start creates it with Colima's defaults."));
   }
@@ -432,7 +490,7 @@ async function renderGeneral(main) {
   const st = await api("GET", `${P()}/status`);
   if (st.running) {
     const s = st.status;
-    const eng = el("div.card", el("h2", "Engine"), el("dl.kv",
+    const eng = el("div.card.info-card", cardHead("t1", "engine", "Engine", s.arch || ""), el("dl.kv.kv-rows",
       el("dt", "VM"), el("dd", s.driver),
       el("dt", "Mounts"), el("dd", s.mount_type),
       el("dt", "Kubernetes"), el("dd", s.kubernetes ? "on" : "off"),
@@ -440,20 +498,21 @@ async function renderGeneral(main) {
       el("dt", "Socket"), el("dd.mono.small", (s.docker_socket || "").replace("unix://", ""))));
     cards.append(eng);
   }
-  const disk = el("div.card", el("h2", "Disk use"), el("p.muted.small", "Loading…"));
+  const diskHead = () => cardHead("t4", "disk", "Disk use", "");
+  const disk = el("div.card.info-card", diskHead(), el("p.muted.small", "Loading…"));
   cards.append(disk);
   api("GET", `${P()}/df`).then((rows) => {
     const max = Math.max(1, ...rows.map((r) => r.size));
     const total = rows.reduce((a, r) => a + r.size, 0);
     const reclaim = rows.reduce((a, r) => a + r.reclaimable, 0);
-    disk.replaceChildren(el("h2", "Disk use"),
-      el("div.bars", rows.map((r) => {
-        const fill = el("div.fill");
+    disk.replaceChildren(diskHead(),
+      el("div.bars", rows.map((r, i) => {
+        const fill = el(`div.fill.f${i % 8 + 1}`);
         fill.style.width = `${(r.size / max) * 100}%`;
         return el("div.bar", el("span", `${r.type} (${r.count})`), el("div.track", fill), el("span.mono", bytes(r.size)));
       })),
       el("p.small.muted", `${bytes(total)} in use, ${bytes(reclaim)} reclaimable by pruning.`));
-  }).catch((e) => disk.replaceChildren(el("h2", "Disk use"), el("p.muted", e.message)));
+  }).catch((e) => disk.replaceChildren(diskHead(), el("p.muted", e.message)));
 }
 
 // ---------- Containers ----------
@@ -461,7 +520,8 @@ async function renderGeneral(main) {
 async function renderContainers(main) {
   const head = el("div.head",
     el("div", el("h1", "Containers"), el("p.muted", "Running and stopped containers, grouped by Compose project.")),
-    el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: safeGet("cfilter") || "" })));
+    el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: state.route?.params.q ?? safeGet("cfilter") ?? "" }),
+      exportMenu("containers", () => containerExportRows(list))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, body);
@@ -484,20 +544,44 @@ async function renderContainers(main) {
       const cs = groups.get(g);
       if (g) {
         const anyRunning = cs.some((c) => c.State === "running");
-        tbody.append(el("tr.group", el("td", { colspan: 5 }, `Compose: ${g}`, el("span.muted.small", ` · ${cs.length} ${cs.length === 1 ? "container" : "containers"}`)),
-          el("td.actions", el("button.ghost.mini", { type: "button", onclick: () => groupAction(cs, anyRunning ? "stop" : "start") }, anyRunning ? "Stop all" : "Start all"))));
+        tbody.append(el("tr.group", el("td", { colspan: 6 }, `Compose: ${g}`, el("span.muted.small", ` · ${cs.length} ${cs.length === 1 ? "container" : "containers"}`)),
+          el("td.actions",
+            el("button.ghost.mini", { type: "button", onclick: () => showProjectLogs(g), title: "All of this project's logs, interleaved by time" }, "Logs"),
+            el("button.ghost.mini", { type: "button", onclick: () => groupAction(cs, anyRunning ? "stop" : "start") }, anyRunning ? "Stop all" : "Start all"))));
       }
       for (const c of cs) tbody.append(containerRow(c));
     }
     body.replaceChildren(el("table.ctable",
-      el("thead", el("tr", ["Name", "Image", "State", "Ports", "Created", ""].map((h) => el("th", h)))), tbody));
+      el("thead", el("tr", ["Name", "Image", "State", "Limits", "Ports", "Created", ""].map((h) => el("th", h)))), tbody));
   };
   const load = async () => {
     try { list = await api("GET", `${P()}/containers`); draw(); } catch (e) { body.replaceChildren(el("div.notice.bad", e.message)); }
   };
   filter.addEventListener("input", draw);
   await load();
+  openRouted(list);
   setTimer(load, 4000);
+}
+
+// #containers?name=x&open=logs|inspect|shell opens that container's drawer once per navigation.
+function openRouted(list) {
+  const { name, open } = state.route?.params || {};
+  if (!name || state.route.done) return;
+  state.route.done = true;
+  const c = list.find((x) => x.Names.some((n) => n.replace(/^\//, "") === name) || x.Id.startsWith(name));
+  if (!c) { toast(`No container called ${name}`, true); return; }
+  if (open === "shell" && c.State === "running") showShell(c.Id, name);
+  else if (open === "inspect") showInspect(c.Id, name);
+  else showLogs(c.Id, name);
+}
+
+function linkBtn(page, params) {
+  const btn = el("button.ghost.mini", { type: "button", title: "Copy a link that opens this again" }, "Copy link");
+  btn.addEventListener("click", async () => {
+    const url = `${location.origin}${location.pathname}#${page}?${new URLSearchParams(params)}`;
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch { toast("Copy failed", true); }
+  });
+  return btn;
 }
 
 function containerRow(c) {
@@ -520,7 +604,8 @@ function containerRow(c) {
     el("td", el("strong", name), el("div.muted.small.mono", short(c.Id))),
     // an image whose tag moved on shows as a digest: keep it short, full value on hover
     el("td.mono.small.trunc", { title: c.Image }, c.Image.startsWith("sha256:") ? c.Image.slice(0, 19) + "…" : c.Image),
-    el("td", el(`span.pill.${c.State}`, c.State), el("div.muted.small.nowrap", c.Status)),
+    el("td", el(`span.pill.${c.State}`, c.State), el("div.muted.small.nowrap", c.Status), containerFlags(c)),
+    limitsCell(c),
     el("td", ports.length ? ports : el("span.muted", "–")),
     el("td.small", ago(c.Created)),
     el("td.actions.wrap",
@@ -533,6 +618,7 @@ function containerRow(c) {
       running ? el("button.ghost.mini", { type: "button", onclick: () => showFiles(c.Id, name) }, "Files") : null,
       el("button.ghost.mini", { type: "button", onclick: () => showLogs(c.Id, name) }, "Logs"),
       el("button.ghost.mini", { type: "button", onclick: () => showInspect(c.Id, name) }, "Inspect"),
+      el("button.ghost.mini", { type: "button", onclick: () => showLimits(c, name) }, "Limits"),
       el("button.ghost.mini.danger", { type: "button", onclick: () => removeContainer(c, name) }, "Remove")));
 }
 
@@ -549,45 +635,7 @@ async function removeContainer(c, name) {
   try { await api("DELETE", `${P()}/containers/${encodeURIComponent(c.Id)}?force=${running ? 1 : 0}`); toast(`Removed ${name}`); render(); } catch (e) { toast(e.message, true); }
 }
 
-function showLogs(id, name) {
-  const log = el("pre.log");
-  const search = el("input", { type: "search", placeholder: "Highlight", "aria-label": "Highlight text in logs" });
-  const follow = el("input", { type: "checkbox", checked: true });
-  const stamps = el("input", { type: "checkbox" });
-  const lines = [];
-  const paint = () => {
-    const q = search.value;
-    log.replaceChildren(...lines.map((l) => lineNode(l, q)));
-    log.scrollTop = log.scrollHeight;
-  };
-  const start = () => {
-    if (state.logSource) state.logSource.close();
-    lines.length = 0;
-    log.replaceChildren();
-    const qs = `tail=500&follow=${follow.checked ? 1 : 0}&timestamps=${stamps.checked ? 1 : 0}`;
-    const src = new EventSource(`${P()}/containers/${encodeURIComponent(id)}/logs?${qs}`);
-    state.logSource = src;
-    src.addEventListener("line", (e) => {
-      const l = JSON.parse(e.data);
-      lines.push(l);
-      if (lines.length > 5000) lines.shift();
-      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
-      log.append(lineNode(l, search.value));
-      if (log.childNodes.length > 5000) log.firstChild.remove();
-      if (atBottom) log.scrollTop = log.scrollHeight;
-    });
-    src.addEventListener("done", () => src.close());
-    src.addEventListener("failed", (e) => { src.close(); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
-  };
-  search.addEventListener("input", paint);
-  follow.addEventListener("change", start);
-  stamps.addEventListener("change", start);
-  openDrawer(`Logs: ${name}`,
-    el("div.toolbar", search, el("label.check", follow, "Follow"), el("label.check", stamps, "Timestamps"),
-      el("button.ghost.mini", { type: "button", onclick: () => download(`${name}.log`, lines.map((l) => l.t).join("\n")) }, "Download")),
-    log);
-  start();
-}
+// showLogs and showProjectLogs live in containers.js.
 
 // ---------- shell and files inside a container ----------
 
@@ -756,6 +804,7 @@ function download(name, text) {
 
 async function showInspect(id, name) {
   openDrawer(`Inspect: ${name}`, el("p.muted", "Loading…"));
+  $("#drawertitle").append(" ", linkBtn("containers", { name, open: "inspect" }));
   try {
     const [doc, stats] = await Promise.all([
       api("GET", `${P()}/containers/${encodeURIComponent(id)}`),
@@ -927,13 +976,16 @@ async function renderImages(main) {
   };
   pull.addEventListener("click", doPull);
   ref.addEventListener("keydown", (e) => { if (e.key === "Enter") doPull(); });
+  let imgs = [];
+  const imageRows = () => imgs.map((i) => ({ id: i.Id, tags: (i.RepoTags || []).filter((t) => t !== "<none>:<none>").join(" "),
+    digests: (i.RepoDigests || []).join(" "), size_bytes: i.Size, created: new Date(i.Created * 1000).toISOString(), containers: i.Containers }));
   const head = el("div.head",
     el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, scan, remove and prune images.")),
-    el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused")));
+    el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused"), exportMenu("images", imageRows)));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, buildCard(), body);
-  const imgs = await api("GET", `${P()}/images`);
+  imgs = await api("GET", `${P()}/images`);
   if (!imgs.length) { body.replaceChildren(el("p.empty", "No images yet.")); return; }
   const items = imgs.map((i) => {
     const tags = (i.RepoTags || []).filter((t) => t !== "<none>:<none>");
@@ -948,7 +1000,7 @@ async function renderImages(main) {
     const hit = x.tags.filter((t) => m([t.toLowerCase()]));
     return filter.value.trim() && hit.length && hit.length < x.tags.length ? hit : null;
   };
-  const filter = el("input", { type: "search", placeholder: "Filter, e.g. shop* or *:dev", "aria-label": "Filter images", value: safeGet("ifilter") || "", size: 30 });
+  const filter = el("input", { type: "search", placeholder: "Filter, e.g. shop* or *:dev", "aria-label": "Filter images", value: state.route?.params.q ?? safeGet("ifilter") ?? "", size: 30 });
   const all = el("input", { type: "checkbox", "aria-label": "Select all shown images" });
   const count = el("span.small.muted");
   const bulk = el("button.ghost.mini.danger", { type: "button", disabled: true }, "Remove selected");
@@ -1053,13 +1105,16 @@ function scanImage(ref) {
 // ---------- Volumes ----------
 
 async function renderVolumes(main) {
+  let vols = [];
   const head = el("div.head",
     el("div", el("h1", "Volumes"), el("p.muted", "Named and anonymous volumes, their size and who uses them.")),
-    el("div.toolbar", el("button.ghost", { type: "button", onclick: pruneVolumes }, "Prune unused")));
+    el("div.toolbar", el("button.ghost", { type: "button", onclick: pruneVolumes }, "Prune unused"),
+      exportMenu("volumes", () => vols.map((v) => ({ name: v.Name, driver: v.Driver, size_bytes: v.UsageData ? v.UsageData.Size : "",
+        ref_count: v.UsageData ? v.UsageData.RefCount : "", used_by: v.usedBy.join(" "), created: v.CreatedAt || "", mountpoint: v.Mountpoint || "" })))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, body);
-  const vols = await api("GET", `${P()}/volumes`);
+  vols = await api("GET", `${P()}/volumes`);
   if (!vols.length) { body.replaceChildren(el("p.empty", "No volumes.")); return; }
   body.replaceChildren(el("table",
     el("thead", el("tr", ["Name", "Size", "Used by", "Created", ""].map((h) => el("th", h)))),
@@ -1177,7 +1232,7 @@ async function renderPreferences(main) {
     runJob("POST", `/api/profiles/${encodeURIComponent(n)}/actions/start`, {}, () => { state.profile = n; safeSet("profile", n); refreshOverview().then(render); });
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
-  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(),
+  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(), prometheusCard(),
     el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
 }
 
@@ -1206,7 +1261,30 @@ function applyTheme() {
   const t = safeGet("theme");
   if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   else delete document.documentElement.dataset.theme;
+  drawThemeBtn();
 }
+
+// The status bar's sun/moon button flips between light and dark. "Follow the system" stays in Preferences.
+const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+function isDark() { const t = document.documentElement.dataset.theme; return t ? t === "dark" : darkQuery.matches; }
+function drawThemeBtn() {
+  const b = document.getElementById("sb-theme");
+  if (!b) return;
+  const dark = isDark();
+  const label = dark ? "Switch to light mode" : "Switch to dark mode";
+  b.title = label; b.setAttribute("aria-label", label);
+  const text = `<span>${dark ? "Light" : "Dark"}</span>`;
+  b.innerHTML = (dark
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>') + text;
+}
+document.getElementById("sb-theme")?.addEventListener("click", () => {
+  safeSet("theme", isDark() ? "light" : "dark");
+  applyTheme();
+  const sel = document.querySelector('select[aria-label="Theme"]');
+  if (sel) sel.value = safeGet("theme");
+});
+darkQuery.addEventListener("change", drawThemeBtn);
 applyTheme();
 
 // Notifications and the menu bar icon, plus the latest alerts.
@@ -1249,7 +1327,7 @@ async function renderTroubleshooting(main) {
   const logs = el("div.card", el("h2", "Logs"),
     el("p.muted", "Colima's and the VM's own log files: start-up, the host agent and the VM console."),
     el("button.ghost", { type: "button", onclick: () => showVMLogs() }, "Show logs"));
-  const cards = [logs];
+  const cards = [logs, supportBundleCard()];
   const st = currentProfile();
   if (isRunning() && st?.kubernetes) {
     cards.push(el("div.card", el("h2", "Reset Kubernetes"),
@@ -1277,7 +1355,7 @@ async function renderDiagnostics(main) {
     el("div", el("h1", "Diagnostics"), el("p.muted", "Checks for the usual Colima problems, each with its fix.")),
     el("div.toolbar", el("button.ghost", { type: "button", onclick: () => render() }, "Run again")));
   const checks = el("div.card", el("p.muted", "Checking…"));
-  main.replaceChildren(head, checks);
+  main.replaceChildren(head, checks, supportBundleCard());
   const list = await api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`);
   setDiagBadge(list);
   const showMuted = el("input", { type: "checkbox", checked: safeGet("showMuted") === "1" });
@@ -1438,6 +1516,7 @@ const NAV_ICONS = {
   runs: ["#15803d", "M4 6h9M4 12h9M4 18h5M14 16l3 3 5-6"],
   snapshots: ["#0369a1", "M4 7h3l2-3h6l2 3h3v12H4zM12 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"],
   builds: ["#9333ea", "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"],
+  report: ["#4338ca", "M6 3h9l4 4v14H6zM14 3v5h5M9 17v-3M12 17v-6M15 17v-4"],
 };
 function decorateNav() {
   for (const a of document.querySelectorAll("#nav a")) {
@@ -1622,7 +1701,10 @@ async function refreshStatusInfo() {
         }).catch(() => {});
       }
     }
+    const engineBefore = state.sbInfo?.engine;
     state.sbInfo = info;
+    const w = $("#welcome");
+    if (w && info.engine !== engineBefore) w.replaceWith(welcomeCard());
   } catch { state.sbInfo = { profile: prof }; }
   paintStatusBar();
 }
@@ -1640,9 +1722,10 @@ function paintStatusBar() {
   item("#sb-engine", "CE", running ? (i.engine || "…") : "stopped");
   const u = state.updates;
   const btn = $("#sb-update");
-  const avail = u && ((u.dashboard?.newer && u.dashboard?.canUpdate) || u.colima?.newer);
-  btn.hidden = !avail;
-  if (avail) btn.textContent = u.dashboard?.phase === "installed" ? "Restarting into the update…" : "Update available";
+  const n = (u?.tools || []).filter((t) => t.newer).length + (u?.dashboard?.newer && u?.dashboard?.canUpdate ? 1 : 0)
+    + (u?.colima?.newer && !(u?.tools || []).some((t) => t.formula === "colima") ? 1 : 0);
+  btn.hidden = !n;
+  if (n) btn.textContent = u.dashboard?.phase === "installed" ? "Restarting into the update…" : n === 1 ? "1 update available" : `${n} updates available`;
 }
 $("#sb-update").addEventListener("click", () => { location.hash = "#general"; render(); });
 
@@ -1687,14 +1770,36 @@ function welcomeCard() {
       rows.push(row("dev", "x", "A development build of Colima Dashboard.", rb));
     } else if (!d.canUpdate && d.reason) rows.push(row("manual", "x", `Colima Dashboard ${d.current}: ${d.reason}.`));
     else if (d.latest) rows.push(row("latest", "ok", `Colima Dashboard ${d.current} is up to date.`));
+    const tools = u.tools || [];
     const c = u.colima || {};
-    if (c.newer) rows.push(row("new", "warn", `Colima ${c.latest.version} is out (you have ${c.current}).${c.canUpdate ? "" : " " + c.reason}`,
-      link(c.latest.url, "Release notes"), c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : null));
-    else if (c.latest) rows.push(row("latest", "ok", `Colima ${c.current} is up to date.`));
+    if (!tools.some((t) => t.formula === "colima")) {
+      if (c.newer) rows.push(row("new", "warn", `Colima ${c.latest.version} is out (you have ${c.current}).${c.canUpdate ? "" : " " + c.reason}`,
+        link(c.latest.url, "Release notes"), c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : null));
+      else if (c.latest) rows.push(row("latest", "ok", `Colima ${c.current} is up to date.`));
+    }
+    // Homebrew tools: one row each, newest first among the out of date ones.
+    for (const t of [...tools].sort((a, b) => b.newer - a.newer)) {
+      const what = el("span", el("strong", t.label), el("span.muted", ` ${t.about}. `));
+      if (t.newer) rows.push(row("new", "warn", el("span", what, `${t.latest} is out (you have ${t.current}).`),
+        t.url ? link(t.url, "What changed") : null, el("button.mini", { type: "button", onclick: () => updateTools([t]) }, "Update")));
+      else rows.push(row("latest", "ok", el("span", what, t.latest ? `${t.current} is up to date.` : `${t.current} (could not check).`)));
+    }
+    // Docker Engine runs inside the VM; Colima updates it with colima update.
+    const eng = engineVersion();
+    const dockerTool = tools.find((t) => t.formula === "docker");
+    if (eng && isRunning()) {
+      const behind = dockerTool?.latest && versionNewer(dockerTool.latest, eng);
+      const ub = el(`button.mini${behind ? "" : ".ghost"}`, { type: "button", onclick: updateRuntime }, "Update engine");
+      rows.push(row(behind ? "new" : "latest", behind ? "warn" : "ok",
+        el("span", el("strong", "Docker Engine"), el("span.muted", ` inside profile ${state.profile}. `),
+          behind ? `${eng}; Docker ${dockerTool.latest} is out. Colima installs the newest engine its VM image supports.` : `${eng}.`), ub));
+    }
     if (u.checkError) rows.push(el("div.upd", el("span.small.muted", `Could not check everything: ${u.checkError}`)));
   }
+  const stale = (u?.tools || []).filter((t) => t.newer);
   const checked = u?.checkedAt ? el("div.upd-head-r", el("span.small.muted", `Checked ${ago(Date.parse(u.checkedAt) / 1000)}`),
-    el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now")) : null;
+    el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now"),
+    stale.length > 1 ? el("button.mini", { type: "button", onclick: () => updateTools(stale) }, `Update all (${stale.length})`) : null) : null;
   const news = (u?.colimaNews || []).map((r, i) => el("details", { open: i === 0 && u.colima?.newer },
     el("summary", r.name || r.tag, el("span.muted", new Date(r.published).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }))),
     r.notes ? el("p", r.notes) : null,
@@ -1702,7 +1807,7 @@ function welcomeCard() {
   return el("section.card", { id: "welcome" },
     el("div.welcome",
       el("h2", el("img", { src: "/static/icon.svg", alt: "", width: 28, height: 28 }), "Welcome to Colima Dashboard"),
-      el("label.check", auto, "Update automatically"),
+      el("label.check", { title: "Installs new versions of Colima Dashboard by itself. Other tools update when you press Update." }, auto, "Update the dashboard automatically"),
       el("div", el("p.muted", `A local dashboard for Colima: your VMs, containers, images and Kubernetes in one place. Version ${ov.version || "–"}.`),
         el("div.links",
           el("a", { href: "https://github.com/abiosoft/colima", target: "_blank", rel: "noopener noreferrer" }, "Colima on GitHub"),
@@ -1735,6 +1840,28 @@ async function installDashboard() {
     paintStatusBar();
     if (state.updates.dashboard?.phase !== "downloading") clearInterval(poll);
   }, 1500);
+}
+
+function engineVersion() { return ((state.sbInfo || {}).engine || "").match(/\d+\.\d+\.\d+/)?.[0] || ""; }
+function versionNewer(a, b) {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
+
+// updateTools runs brew upgrade for the tools given, as one task.
+async function updateTools(list) {
+  const names = list.map((t) => `${t.label} ${t.current} → ${t.latest}`).join(", ");
+  const vm = list.some((t) => t.formula === "colima" || t.formula === "lima");
+  if (!await confirmBox(list.length === 1 ? `Update ${list[0].label}?` : `Update ${list.length} tools?`,
+    `Homebrew upgrades ${names}.${vm ? " Running profiles keep the old Colima or Lima until you restart them." : ""}`, "Update", false)) return;
+  runJob("POST", "/api/updates/brew", { formulae: list.map((t) => t.formula) }, () => refreshUpdates(true));
+}
+
+async function updateRuntime() {
+  if (!await confirmBox(`Update Docker Engine in ${state.profile}?`,
+    "Colima updates the container runtime inside the VM. Docker restarts, so running containers stop for a minute; ones with a restart policy start again.", "Update", false)) return;
+  runJob("POST", `${P()}/runtime-update`, undefined, () => { refreshStatusInfo(); refreshUpdates(true); });
 }
 
 async function updateColima() {
@@ -1790,6 +1917,37 @@ async function pollMetrics() {
   }
 }
 
+// "Why is it slow?": what the whole Mac is busy with, so a slow container can be told apart from
+// a Mac that is flat out on something else. The server samples only while this page asks.
+async function pollMac() {
+  try { metrics.mac = await api("GET", "/api/mac/load"); } catch { metrics.mac = null; }
+}
+function macCard() {
+  const m = metrics.mac;
+  if (!m) return null;
+  const open = safeGet("whyslow") !== "closed";
+  const tone = !m.ready ? "ok" : m.busy >= 70 ? "bad" : m.busy >= 40 ? "warn" : "ok";
+  const mins = Math.max(1, Math.round(m.windowSec / 60));
+  const head = !m.ready ? "Measuring… first figures in about 10 seconds"
+    : `Mac ${Math.round(m.busy)}% busy, ${Math.round(m.kernel)}% kernel, ${Math.round(m.spawnPerSec)} new process${Math.round(m.spawnPerSec) === 1 ? "" : "es"} a second`;
+  const max = Math.max(1, ...m.apps.map((a) => a.cpu));
+  const d = el(`details.card.whyslow.${tone}`, { open },
+    el("summary",
+      el("span.ws-title", el("span.ws-icon", tone === "ok" ? "✓" : "🐢"), m.ready && m.windowSec >= 240 ? "Why is it slow? Last 5 min" : `Why is it slow? Last ${m.ready ? mins : 5} min`),
+      el("span.ws-head", head)),
+    m.ready ? el("div.ws-list", m.apps.map((a) => {
+      const bar = el("span.ws-fill"); bar.style.width = `${(a.cpu / max) * 100}%`;
+      return el(`div.ws-row${a.vm ? ".vm" : ""}`,
+        el("div.ws-name", el("strong", a.name), a.vm ? el("span.pill.running", "Colima VM") : null,
+          el("span.ws-detail", `${a.processes} process${a.processes === 1 ? "" : "es"}: ${a.commands.join(", ")}`)),
+        el("span.ws-bar", bar), el("span.ws-pct", pct(a.cpu)));
+    })) : null,
+    m.ready && m.spawnPerSec >= 30 ? el("p.ws-tip", "Lots of short-lived processes: usually a script or build in a loop, or security software checking each one. They cost kernel time, which slows everything, the VM included.") : null,
+    m.ready ? el("p.ws-note", `Share of all ${m.cores} cores on your Mac, averaged over the last ${mins} minute${mins === 1 ? "" : "s"} while this page was open.`) : null);
+  d.addEventListener("toggle", () => safeSet("whyslow", d.open ? "open" : "closed"));
+  return d;
+}
+
 const RANGES = { "5m": 5 * 60e3, "15m": 15 * 60e3, "1h": 60 * 60e3 };
 // Long ranges come from the history kept on disk (a sample every 5 minutes), not the live samples.
 const LONG = { "1d": 1, "7d": 7, "30d": 30 };
@@ -1840,14 +1998,18 @@ async function renderMonitor(main) {
   }
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div", { id: "monitor" });
-  body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart"); });
+  body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart, .xmenu"); });
   body.addEventListener("pointerleave", () => { metrics.hovering = false; });
+  // Fetch before swapping the page in, so a redraw goes straight from the old charts to the new
+  // ones instead of flashing an empty page while the request is out.
+  try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
+  if (state.tab !== "monitor") return; // moved to another page meanwhile
   main.replaceChildren(head, body);
+  drawMonitor(true);
   const tick = async () => {
-    try { await pollMetrics(); } catch (e) { metrics.error = e.message; }
-    if (!metrics.hovering && document.body.contains(body)) drawMonitor(true);
+    try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
+    if (!metrics.hovering && !body.querySelector("details.xmenu[open]") && document.body.contains(body)) drawMonitor(true);
   };
-  await tick();
   setTimer(tick, 2000);
 }
 
@@ -1857,10 +2019,13 @@ function drawMonitor(dataOnly) {
   if (!body) return;
   const range = RANGES[safeGet("range")] ? safeGet("range") : "15m";
   for (const b of document.querySelectorAll(".seg button")) b.className = b.dataset.range === range ? "on" : "off";
+  // Use the newest sample that reached the VM; one that missed it (VM too busy to answer in time)
+  // keeps the charts on screen instead of dropping back to "Collecting".
   const all = metrics.samples;
-  const last = all[all.length - 1];
-  if (!last || !last.guest) {
-    body.replaceChildren(el("div.card.empty", metrics.error ? el("p", metrics.error) : el("p", "Collecting the first samples… graphs appear in a few seconds.")));
+  let last = null;
+  for (let i = all.length - 1; i >= 0 && !last; i--) if (all[i].guest) last = all[i];
+  if (!last) {
+    body.replaceChildren(...[macCard()].filter(Boolean), el("div.card.empty", metrics.error ? el("p", metrics.error) : el("p", "Collecting the first samples… graphs appear in a few seconds.")));
     return;
   }
   const cut = last.t - RANGES[range];
@@ -1923,13 +2088,17 @@ function drawMonitor(dataOnly) {
   const sysNow = Math.max(0, g.cpu - nowSegs.reduce((a, s) => a + s.value, 0));
   nowSegs.push({ label: "VM and system", value: sysNow, color: "var(--series-system)" });
   const rightNow = el("div.card.viz",
-    el("div.viz-head", el("h2", "Right now"), el("span.muted.small", "% of the VM's CPU")),
+    el("div.viz-head", el("h2", "Right now"), el("span.viz-tools", el("span.muted.small", "% of the VM's CPU"),
+      exportMenu("cpu-now", () => nowSegs.map((s) => ({ time: new Date(last.t).toISOString(), group: s.label, cpu_pct: s.value }))))),
     el("div.donut-wrap", Charts.donut(nowSegs, 168, [pct(g.cpu), "busy"]),
       el("div.donut-legend", nowSegs.map((s) => { const sw = el("span.sw"); sw.style.background = s.color; return el("div.dl-row", sw, el("span.dl-name", s.label), el("span.dl-val", pct(s.value))); }))));
 
-  const chart = (title, note, opts) => el("div.card.viz", el("div.viz-head", el("h2", title), note ? el("span.muted.small", note) : null), Charts.timeChart({ times, domain: [last.t - RANGES[range], last.t], ...opts }));
+  const chart = (title, note, opts) => el("div.card.viz",
+    el("div.viz-head", el("h2", title), el("span.viz-tools", note ? el("span.muted.small", note) : null,
+      exportMenu(`${opts.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${range}`, () => seriesRows(times, opts.series)))),
+    Charts.timeChart({ times, domain: [last.t - RANGES[range], last.t], ...opts }));
   const cpuArea = chart(range === "1h" ? "Last hour, by container" : `Last ${range === "15m" ? "15 minutes" : "5 minutes"}, by container`, "% of the VM's CPU",
-    { series: byContainer((c) => c.cpu, (s) => s.guest?.cpu ?? null), stacked: true, yMax: 100, fmt: (v) => `${v.toFixed(v < 10 ? 1 : 0)}%` });
+    { slug: "cpu-by-container", series: byContainer((c) => c.cpu, (s) => s.guest?.cpu ?? null), stacked: true, yMax: 100, fmt: (v) => `${v.toFixed(v < 10 ? 1 : 0)}%` });
   const memArea = chart("Memory, by container", "inside the VM",
     { series: byContainer((c) => c.memory, (s) => s.guest?.memUsed ?? null), stacked: true, fmt: bytes });
   const net = chart("Network", "VM to the outside world", {
@@ -1958,13 +2127,16 @@ function drawMonitor(dataOnly) {
       el("td.mono.small", `↓ ${rate(c.netRx)}`, el("br"), `↑ ${rate(c.netTx)}`),
       el("td.mono.small", `r ${rate(c.diskRead)}`, el("br"), `w ${rate(c.diskWrite)}`));
   });
-  const table = el("div.card.viz", el("div.viz-head", el("h2", "Containers"), el("span.muted.small", "CPU as % of the VM; the line shows the selected range")),
+  const containerRows = () => win.flatMap((s) => Object.entries(s.containers || {}).map(([id, c]) => ({
+    time: new Date(s.t).toISOString(), container: cname(id), image: metrics.images[id] || "", cpu_pct: c.cpu, memory_bytes: c.memory,
+    net_rx_bps: c.netRx, net_tx_bps: c.netTx, disk_read_bps: c.diskRead, disk_write_bps: c.diskWrite })));
+  const table = el("div.card.viz", el("div.viz-head", el("h2", "Containers"), el("span.viz-tools", el("span.muted.small", "CPU as % of the VM; the line shows the selected range"), exportMenu("container-samples", containerRows))),
     rows.length ? el("div.table-wrap", el("table",
       el("thead", el("tr", ["Container", "CPU", "Memory", "Network", "Disk"].map((x) => el("th", x)))), el("tbody", rows)))
       : el("p.empty", "No running containers."));
 
   const note = el("p.small.muted", "Sampled every 2 seconds while this page is open; sampling stops 5 minutes after you leave. Gaps in the lines are times nobody was watching.");
-  body.replaceChildren(hero, el("div.viz-grid", rightNow, cpuArea), el("div.viz-grid", memArea, vmMem), el("div.viz-grid", net, disk), el("div.viz-grid", macCpu, macMem), table, note);
+  body.replaceChildren(...[macCard()].filter(Boolean), hero, el("div.viz-grid", rightNow, cpuArea), el("div.viz-grid", memArea, vmMem), el("div.viz-grid", net, disk), el("div.viz-grid", macCpu, macMem), table, note);
 }
 
 tabs.monitor = renderMonitor;
@@ -2017,7 +2189,10 @@ async function renderRuns(main) {
     stat(String(flaky.length), "flaky", "passed and failed in the last 10 runs", flaky.length ? "warn" : ""),
     stat(String(slow.length), "slower", "last 5 runs 20% or more slower than before", slow.length ? "warn" : ""));
   const legend = el("div.legend.small", ["pass", "fail", "oom", "stopped"].map((o) => { const sw = el("span.sw"); sw.style.background = Charts.OUTCOME_COLORS[o]; return el("span.lgd", sw, o === "oom" ? "out of memory" : o); }));
-  const jobs = el("div.card.viz", el("div.viz-head", el("h2", "By service or image"), legend),
+  const jobRowsFlat = () => d.jobs.map((j) => ({ job: j.job, runs: j.runs, pass: j.pass, fail: j.fail, oom: j.oom, stopped: j.stopped,
+    pass_rate: j.passRate < 0 ? "" : j.passRate, median_s: j.median, p90_s: j.p90, flaky: j.flaky, slower: j.slower,
+    restarts: j.restarts, unhealthy: j.unhealthy, last_outcome: j.last.outcome, last_run: j.last.t }));
+  const jobs = el("div.card.viz", el("div.viz-head", el("h2", "By service or image"), el("span.viz-tools", legend, exportMenu(`run-jobs-${days}d`, jobRowsFlat))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["", "Runs", "Passed", "Median", "Slowest 10%", "Last run", "Trend"].map((x) => el("th", x)))),
       el("tbody", d.jobs.map((j) => el("tr",
@@ -2033,7 +2208,8 @@ async function renderRuns(main) {
         el("td.mono.nowrap", j.passRate < 0 ? "–" : dur(j.p90)),
         el("td", outcomePill(j.last.outcome), el("div.muted.small", `${whenAgo(j.last.t)}, ${dur(j.last.seconds)}`)),
         el("td", Charts.runBars(j.trend, dur))))))));
-  const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.muted.small", `newest first, ${d.total} in all`)),
+  const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.viz-tools", el("span.muted.small", `newest first, ${d.total} in all`),
+    exportMenu(`runs-${days}d`, { url: `${P()}/runs?days=${days}` }))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["When", "Container", "Result", "Exit code", "Took"].map((x) => el("th", x)))),
       shortBody(d.recent.slice(0, 100).map((r) => el("tr",
@@ -2090,7 +2266,9 @@ async function renderBuilds(main) {
     stat(String(failed), "failed", "", failed ? "bad" : ""),
     stat(String(slow.length), "slower", "last 5 builds 20% or more slower than before", slow.length ? "warn" : ""),
     stat(String(d.names.length), "images", "distinct build names")));
-  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "By image"), el("span.muted.small", `${completed} completed`)),
+  const nameRows = () => d.names.map((b) => ({ name: b.name, builds: b.builds, failed: b.failed, median_s: b.median, cache_rate: b.cacheRate,
+    slower: b.slower, last_status: b.last.status, last_build: b.last.t, last_seconds: b.last.seconds }));
+  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "By image"), el("span.viz-tools", el("span.muted.small", `${completed} completed`), exportMenu(`build-images-${days}d`, nameRows))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["", "Builds", "Median", "From cache", "Last build", "Trend"].map((x) => el("th", x)))),
       el("tbody", d.names.map((b) => el("tr",
@@ -2102,7 +2280,8 @@ async function renderBuilds(main) {
         el("td.mono", pctRate(b.cacheRate), el("div.muted.small", "of steps")),
         el("td", outcomePill(b.last.status === "Completed" ? "pass" : "fail"), el("div.muted.small", `${whenAgo(b.last.t)}, ${dur(b.last.seconds)}`)),
         el("td", Charts.runBars(b.trend, dur)))))))));
-  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "Recent builds"), el("span.muted.small", "newest first")),
+  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "Recent builds"), el("span.viz-tools", el("span.muted.small", "newest first"),
+    exportMenu(`builds-${days}d`, { url: `${P()}/builds?days=${days}` }))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["When", "Image", "Result", "Steps", "Took"].map((x) => el("th", x)))),
       shortBody(d.recent.slice(0, 100).map((b) => el("tr",
@@ -2128,7 +2307,8 @@ async function drawHistory(body, days) {
   const end = Date.now();
   const domain = [end - days * 86400e3, end];
   const opts = { times, domain, gapMs: 16 * 60e3 };
-  const chart = (title, note, o) => el("div.card.viz", el("div.viz-head", el("h2", title), note ? el("span.muted.small", note) : null), Charts.timeChart({ ...opts, ...o }));
+  const hx = () => exportMenu(`history-${days}d`, { url: `${P()}/history?days=${days}` });
+  const chart = (title, note, o) => el("div.card.viz", el("div.viz-head", el("h2", title), el("span.viz-tools", note ? el("span.muted.small", note) : null, hx())), Charts.timeChart({ ...opts, ...o }));
   const pctFmt = (v) => `${v.toFixed(v < 10 ? 1 : 0)}%`;
   const cards = [];
   const f = d.forecast;
@@ -2150,7 +2330,7 @@ async function drawHistory(body, days) {
   const dtimes = dockerPts.map((p) => Date.parse(p.t));
   cards.push(el("div.viz-grid",
     chart("VM disk on your Mac", "space the VM's disk image takes", { series: [{ name: "On the Mac", color: Charts.seriesColor(2), fill: true, values: pts.map((p) => p.diskMac || null) }], fmt: bytes }),
-    el("div.card.viz", el("div.viz-head", el("h2", "Docker disk use"), el("span.muted.small", "every 15 minutes")),
+    el("div.card.viz", el("div.viz-head", el("h2", "Docker disk use"), el("span.viz-tools", el("span.muted.small", "every 15 minutes"), hx())),
       Charts.timeChart({ times: dtimes, domain, gapMs: 31 * 60e3, stacked: true, fmt: bytes, empty: "Not sampled yet.",
         series: [["Images", "images", 0], ["Build cache", "buildCache", 1], ["Volumes", "volumes", 3], ["Containers", "containers", 4]]
           .map(([name, k, c]) => ({ name, color: Charts.seriesColor(c), values: dockerPts.map((p) => p[k] ?? null) })) }))));
@@ -2163,6 +2343,7 @@ async function drawHistory(body, days) {
 
 tabs.runs = renderRuns;
 tabs.builds = renderBuilds;
+tabs.report = renderReport; // report.js
 
 // k8s.js loads after this file and adds its tab; boot once every script has run.
 document.addEventListener("DOMContentLoaded", () => boot());

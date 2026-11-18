@@ -111,7 +111,7 @@ func TestUnschedulablePlan(t *testing.T) {
 	big.Phase = "Pending"
 	pl := plan(t, "unschedulable", big, node, false)
 	// 3540m free, 90% is 3186m, rounded down to 3000m; memory fits so it stays.
-	if pl.Kind != "resources" || pl.Recommended.CPUReq != "3" || pl.Recommended.MemReq != "128Mi" || pl.Recommended.CPULim != "64" || pl.VM == nil || pl.VM.CPUs != 66 {
+	if pl.Kind != "resources" || pl.Recommended.CPUReq != "3" || pl.Recommended.MemReq != "128Mi" || pl.Recommended.CPULim != "4" || pl.VM == nil || pl.VM.CPUs != 66 {
 		t.Errorf("unschedulable: %+v %+v %+v", pl, pl.Recommended, pl.VM)
 	}
 	full := []Node{{Name: "n1", CPUCap: 2000, CPUAlloc: 2000, MemCap: 2 << 30, MemAlloc: 2 << 30, CPUReq: 1990, MemReq: 1 << 30}}
