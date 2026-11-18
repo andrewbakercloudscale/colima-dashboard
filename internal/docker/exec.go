@@ -18,10 +18,19 @@ import (
 
 // ExecCreate prepares a command inside a running container and returns the exec id.
 func (c *Client) ExecCreate(ctx context.Context, container string, cmd []string, tty bool) (string, error) {
-	body, _ := json.Marshal(map[string]any{
+	return c.ExecCreateAs(ctx, container, cmd, tty, "")
+}
+
+// ExecCreateAs is ExecCreate run as user ("" keeps the image's own user).
+func (c *Client) ExecCreateAs(ctx context.Context, container string, cmd []string, tty bool, user string) (string, error) {
+	req := map[string]any{
 		"AttachStdin": tty, "AttachStdout": true, "AttachStderr": true, "Tty": tty, "Cmd": cmd,
 		"Env": []string{"TERM=xterm-256color"},
-	})
+	}
+	if user != "" {
+		req["User"] = user
+	}
+	body, _ := json.Marshal(req)
 	resp, err := c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(container)+"/exec", nil, bytes.NewReader(body))
 	if err != nil {
 		return "", err

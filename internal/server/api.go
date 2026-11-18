@@ -75,6 +75,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/files", s.auth(s.apiFiles))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/file", s.auth(s.apiFileView))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/download", s.auth(s.apiFileDownload))
+	m.HandleFunc("POST /api/profiles/{p}/vm/shell", s.auth(s.apiVMShell))
+	m.HandleFunc("POST /api/profiles/{p}/vm/terminal", s.auth(s.apiVMTerminal))
 	m.HandleFunc("GET /api/shells/{sid}/stream", s.auth(s.apiShellStream))
 	m.HandleFunc("POST /api/shells/{sid}/input", s.auth(s.apiShellInput))
 	m.HandleFunc("POST /api/shells/{sid}/resize", s.auth(s.apiShellResize))

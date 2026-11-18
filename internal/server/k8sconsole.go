@@ -780,7 +780,7 @@ func (s *Server) apiK8sPodShell(w http.ResponseWriter, r *http.Request) {
 	for _, c := range cs {
 		l := c.Labels
 		if l["io.kubernetes.pod.namespace"] == ns && l["io.kubernetes.pod.name"] == pod && l["io.kubernetes.container.name"] == req.Container && c.State == "running" {
-			s.openShell(w, r, dc, c.ID, pod, req.Cols, req.Rows)
+			s.openShell(w, r, dc, c.ID, pod, req.Cols, req.Rows, shellOpts{})
 			return
 		}
 	}

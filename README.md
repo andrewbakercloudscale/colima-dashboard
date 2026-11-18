@@ -43,6 +43,8 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Containers, images, volumes and port forwards in tables, with start, stop, remove and logs.
 - A shell into any running container in the page, and a file browser to view and download its
   files; volumes can be browsed too, even with no container using them.
+- A Shells page: a terminal in the Colima VM itself (root, like `colima ssh`), any running
+  container (pick bash or sh, and the user) or a Kubernetes pod, with recent ones one click away.
 - Live stats per container (CPU, memory, network and disk I/O, processes).
 - Build an image from a folder on your Mac, push it, or scan it with Trivy.
 - Image bloat: a grade for every image, where the space goes (layers, folders, biggest files),
