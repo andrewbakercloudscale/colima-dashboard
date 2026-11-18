@@ -43,7 +43,7 @@ const ACTS = [
   ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
   ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
   ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward)\b/],
-  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|show|hide|reveal|full log|only this|download|copy|go to|container)\b/],
+  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|bloat|show|hide|reveal|full log|only this|download|copy|go to|container)\b/],
 ];
 function actOf(b) {
   const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
@@ -51,7 +51,7 @@ function actOf(b) {
   if (b.classList.contains("danger")) return "danger";
   return t ? "neutral" : "";
 }
-const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact";
+const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact, .bl-crumbs button, button.bl-gbtn";
 function tagButtons(root = document) {
   for (const b of root.querySelectorAll("button, a.btn")) {
     if (b.dataset.actFixed !== undefined || b.matches(NO_ACT)) continue;
@@ -340,7 +340,7 @@ async function runJob(method, path, body, onDone) {
 const DRAWER_KINDS = [
   ["Inspect", "search", "t1"], ["VM logs", "logs", "t7"], ["Logs", "logs", "t7"], ["Shell", "shell", "t3"],
   ["Volume", "disk", "t4"], ["Files", "folder", "t4"], ["Limits", "sliders", "t2"], ["Fix", "wrench", "t2"],
-  ["Pod", "wheel", "t1"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"],
+  ["Pod", "wheel", "t1"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"], ["Bloat", "layers", "t8"],
 ];
 function drawerTitle(title) {
   const k = DRAWER_KINDS.find(([w]) => title.startsWith(w + ":") || title.startsWith(w + " "));
@@ -482,6 +482,7 @@ const CHIP_PATHS = {
   pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
   restart: '<path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
   code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/><path d="m3 17.5 9 5 9-5" opacity=".55"/>',
   engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
 };
 function chip(name) {
@@ -1085,11 +1086,14 @@ async function renderImages(main) {
   const imageRows = () => imgs.map((i) => ({ id: i.Id, tags: (i.RepoTags || []).filter((t) => t !== "<none>:<none>").join(" "),
     digests: (i.RepoDigests || []).join(" "), size_bytes: i.Size, created: new Date(i.Created * 1000).toISOString(), containers: i.Containers }));
   const head = el("div.head",
-    el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, scan, remove and prune images.")),
+    el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, scan, slim down, remove and prune images.")),
     el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused"), exportMenu("images", imageRows)));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
-  main.replaceChildren(head, buildCard(), body);
+  // Bloat grades arrive after the table; draw() picks them up when they do.
+  const grades = new Map();
+  let redraw = () => {};
+  main.replaceChildren(head, buildCard(), bloatSummaryCard((rows) => { for (const r of rows) grades.set(r.id, r); redraw(); }), body);
   imgs = await api("GET", `${P()}/images`);
   if (!imgs.length) { body.replaceChildren(el("p.empty", "No images yet.")); return; }
   const items = imgs.map((i) => {
@@ -1134,14 +1138,22 @@ async function renderImages(main) {
         el("td", el("strong.mono", label), tags.length > 1 ? el("div.muted.small.mono", tags.slice(1).join(", ")) : null),
         el("td.mono.small", short(i.Id)),
         el("td", bytes(i.Size)),
+        el("td", (() => {
+          const g = grades.get(i.Id);
+          if (!g) return el("span.muted.small", grades.size ? "–" : "…");
+          if (g.score < 0) return el("span.muted.small", "–");
+          return el("button.bl-gbtn", { type: "button", title: `${g.score}/100${g.top ? `: ${g.top}` : ""}. Click for the full check.`, onclick: () => showBloat(i.Id, label) },
+            gradeBadge(g.grade), g.saving ? el("span.small.muted", `~${bytes(g.saving)}`) : null);
+        })()),
         el("td.small", ago(i.Created)),
         el("td", i.Containers > 0 ? el("span.pill.running", `in use (${i.Containers})`) : el("span.pill", "unused")),
         el("td.actions",
           el("button.ghost.mini", { type: "button", onclick: () => scanImage(tags[0] || i.Id) }, "Scan"),
+          el("button.ghost.mini", { type: "button", onclick: () => showBloat(i.Id, label) }, "Bloat"),
           tags.length ? el("button.ghost.mini", { type: "button", onclick: () => pushImage(tags) }, "Push") : null,
           el("button.ghost.mini.danger", { type: "button", onclick: () => removeImage(i, label) }, "Remove")));
     }));
-    if (!shown.length) tbody.append(el("tr", el("td.muted", { colspan: 7 }, "No image matches the filter.")));
+    if (!shown.length) tbody.append(el("tr", el("td.muted", { colspan: 8 }, "No image matches the filter.")));
     sync();
   };
   all.addEventListener("change", () => { for (const x of shown) all.checked ? picked.set(x.i.Id, pickTags(x)) : picked.delete(x.i.Id); draw(); });
@@ -1150,7 +1162,8 @@ async function renderImages(main) {
   bulk.addEventListener("click", () => removeImages(items.filter((x) => picked.has(x.i.Id)).map((x) => ({ ...x, only: picked.get(x.i.Id) }))));
   body.replaceChildren(
     el("div.toolbar.bulkbar", filter, count, el("span.grow"), clear, bulk),
-    el("table", el("thead", el("tr", el("th.pick", all), ...["Image", "ID", "Size", "Created", "Used by", ""].map((h) => el("th", h)))), tbody));
+    el("table", el("thead", el("tr", el("th.pick", all), ...["Image", "ID", "Size", "Bloat", "Created", "Used by", ""].map((h) => el("th", h)))), tbody));
+  redraw = draw;
   draw();
 }
 
