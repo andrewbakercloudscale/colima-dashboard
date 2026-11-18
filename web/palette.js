@@ -218,10 +218,11 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "g") { palPrefix = Date.now(); }
 }, true);
 
-// The hint in the sidebar header.
+// The hint in the status bar, next to the dark mode button (the sidebar header is too narrow).
 (() => {
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const btn = el("button.pal-hint-btn", { type: "button", title: "Command palette (press ? for all shortcuts)", "aria-label": "Open the command palette" }, mac ? "⌘K" : "Ctrl K");
   btn.addEventListener("click", () => palOpen());
-  document.querySelector(".brand")?.append(btn);
+  const theme = document.getElementById("sb-theme");
+  if (theme) theme.before(btn); else document.querySelector(".brand")?.append(btn);
 })();
