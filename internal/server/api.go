@@ -40,6 +40,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/profiles/{p}/actions/{action}", s.auth(s.apiProfileAction))
 	m.HandleFunc("GET /api/profiles/{p}/df", s.auth(s.apiDiskUsage))
 	m.HandleFunc("GET /api/profiles/{p}/metrics", s.auth(s.apiMetrics))
+	m.HandleFunc("GET /api/mac/load", s.auth(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.opt.Metrics.Mac()) }))
 	m.HandleFunc("GET /api/profiles/{p}/vmlogs", s.auth(s.apiVMLogs))
 	m.HandleFunc("GET /api/profiles/{p}/kubernetes", s.auth(s.apiKubernetes))
 	m.HandleFunc("GET /api/profiles/{p}/kubernetes/services", s.auth(s.apiK8sServices))

@@ -780,3 +780,28 @@ button.solid[data-act]:not([data-act="neutral"]) { background: var(--b); color: 
 
 /* Theme switch: icon plus a word, so it is easy to find. */
 .sb-theme { width: auto; gap: 6px; padding: 0 10px 0 8px; grid-auto-flow: column; font-size: 12.5px; font-weight: 600; }
+
+/* Monitor: "Why is it slow?" — what the whole Mac is busy with. Red when the Mac is flat out. */
+.whyslow { --ws: var(--ok); padding: 0; overflow: hidden; border-color: color-mix(in srgb, var(--ws) 40%, var(--line));
+  background: color-mix(in srgb, var(--ws) 6%, var(--panel)); }
+.whyslow.warn { --ws: var(--warn); }
+.whyslow.bad { --ws: var(--bad); }
+.whyslow > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
+  padding: 12px 18px; cursor: pointer; list-style: none; color: var(--ws); font-weight: 700; }
+.whyslow > summary::-webkit-details-marker { display: none; }
+.whyslow > summary::before { content: "›"; display: inline-block; margin-right: -6px; transition: transform .15s; font-size: 18px; }
+.whyslow[open] > summary::before { transform: rotate(90deg); }
+.ws-title { display: inline-flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: .05em; font-size: 13px; flex: 1; }
+.ws-head { font-size: 14.5px; }
+.ws-list { display: grid; padding: 0 18px 6px; }
+.ws-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 180px) 56px; gap: 14px; align-items: center; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--ws) 18%, var(--line)); }
+.ws-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.ws-name strong { overflow-wrap: anywhere; }
+.ws-detail { flex-basis: 100%; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.ws-bar { height: 8px; border-radius: 99px; background: color-mix(in srgb, var(--ws) 12%, transparent); overflow: hidden; }
+.ws-fill { display: block; height: 100%; border-radius: 99px; background: var(--ws); }
+.ws-row.vm .ws-fill { background: var(--accent); }
+.ws-pct { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+.ws-tip, .ws-note { margin: 0; padding: 4px 18px 12px; font-size: 12.5px; color: var(--muted); }
+.ws-tip { color: var(--text); }
+@media (max-width: 600px) { .ws-row { grid-template-columns: minmax(0, 1fr) 52px; } .ws-bar { grid-column: 1 / -1; grid-row: 2; } }
