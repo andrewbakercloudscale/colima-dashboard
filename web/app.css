@@ -1050,3 +1050,10 @@ tr.on td { background: color-mix(in srgb, var(--bad) 8%, transparent); }
   .err-who td.actions { white-space: normal; }
   .err-who td.actions button { margin: 2px 0; }
 }
+
+/* Errors: names go to the container, lines open the log on that line */
+.err-line { cursor: pointer; border-radius: 3px; }
+.err-line:hover { background: rgba(124, 192, 255, .1); }
+button.link.err-go { display: inline; font-weight: 700; min-height: 0; box-shadow: none; }
+.log button.link.err-go { display: inline-block; min-width: 14ch; color: #7cc0ff; }
+.log .lg-focus { background: rgba(253, 224, 71, .2); outline: 1px solid #eab308; border-radius: 3px; }

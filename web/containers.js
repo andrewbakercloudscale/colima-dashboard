@@ -214,6 +214,8 @@ function logViewer(opts) {
   const buf = [];
   const services = new Map();
   let query = logQuery(""), ver = 0, lastTs = "", repaintT = null, shownN = 0;
+  let at = opts.at || ""; // open on this line: load from just before it, no follow
+  if (at) follow.checked = false;
 
   const svcClass = (n) => {
     if (!services.has(n)) services.set(n, services.size % 8);
@@ -283,7 +285,11 @@ function logViewer(opts) {
     buf.length = 0; services.clear(); lastTs = ""; ver++; shownN = 0;
     log.replaceChildren();
     counter();
-    const sinceV = since.value;
+    let sinceV = since.value;
+    if (at) {
+      const t = Date.parse(at);
+      if (!isNaN(t)) sinceV = String(Math.max(60, Math.ceil((Date.now() - t) / 1000) + 120));
+    }
     const qs = new URLSearchParams({ tail: sinceV ? String(LOG_CAP) : "500", follow: follow.checked ? "1" : "0" });
     if (sinceV) qs.set("since", sinceV);
     const src = new EventSource(`${opts.path}?${qs}`);
@@ -297,10 +303,24 @@ function logViewer(opts) {
       status.textContent = text;
       status.className = `small log-status${bad ? " bad" : ""}`;
     };
-    src.addEventListener("done", () => end(follow.checked ? "stream ended" : "loaded"));
+    src.addEventListener("done", () => { end(follow.checked ? "stream ended" : "loaded"); if (at) focusAt(); });
     src.addEventListener("failed", (e) => { end("failed", true); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
     // never let EventSource reconnect on its own: it would replay the tail as duplicates
     src.onerror = () => { if (src.readyState !== EventSource.CLOSED) end("disconnected", true); };
+  };
+
+  // focusAt marks the line opened on and scrolls to it, then forgets it: changing the range or
+  // turning on follow afterwards loads as usual.
+  const focusAt = () => {
+    const want = at;
+    at = "";
+    if (repaintT) paint();
+    const l = buf.find((x) => x.ts === want) || buf.find((x) => x.ts && x.ts >= want);
+    if (!l) { toast("That line is no longer in the log", true); return; }
+    if (!passes(l)) { errs.checked = false; search.value = ""; query = logQuery(""); ver++; paint(); }
+    const n = node(l);
+    n.classList.add("lg-focus");
+    n.scrollIntoView({ block: "center" });
   };
 
   search.addEventListener("input", () => {
@@ -312,8 +332,8 @@ function logViewer(opts) {
   for (const b of modeBtns) b.addEventListener("click", () => setMode(b.dataset.mode));
   errs.addEventListener("change", paint);
   stamps.addEventListener("change", () => { safeSet("logstamps", stamps.checked ? "1" : "0"); restyle(); });
-  follow.addEventListener("change", start);
-  since.addEventListener("change", () => { safeSet("logsince", since.value); start(); });
+  follow.addEventListener("change", () => { at = ""; start(); });
+  since.addEventListener("change", () => { at = ""; safeSet("logsince", since.value); start(); });
 
   const dl = () => {
     const rows = buf.filter(passes);
@@ -332,8 +352,9 @@ function logViewer(opts) {
   start();
 }
 
-function showLogs(id, name) {
-  logViewer({ title: `Logs: ${name}`, name, path: `${P()}/containers/${encodeURIComponent(id)}/logs`, link: ["containers", { name, open: "logs" }] });
+// at, when given, is a line's timestamp (StampFormat): the log opens on that line, marked.
+function showLogs(id, name, at) {
+  logViewer({ title: `Logs: ${name}`, name, at, path: `${P()}/containers/${encodeURIComponent(id)}/logs`, link: ["containers", { name, open: "logs" }] });
 }
 
 function showProjectLogs(project) {

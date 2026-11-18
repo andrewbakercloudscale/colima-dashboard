@@ -40,12 +40,26 @@ function errorsRow(d) {
 
 const errState = { source: "", level: "", q: "" };
 
+// goToSource opens the container on the Containers page (filtered to it, details open), or a
+// pod's logs; openLine opens its log on the very line.
+function goToSource(s) {
+  if (s.kind === "pod") return showPodLogs({ namespace: s.namespace, name: s.name });
+  palGo("containers", { q: s.name, name: s.name, open: "inspect" });
+}
+function openLine(s, ts) {
+  if (!s) return;
+  if (s.kind === "pod") return showPodLogs({ namespace: s.namespace, name: s.name });
+  showLogs(s.id, s.name, ts);
+}
+const srcLink = (s, label) => el("button.link.err-go", { type: "button", title: s.kind === "pod" ? "Open this pod's logs" : "Go to this container",
+  onclick: (e) => { e.stopPropagation(); goToSource(s); } }, label || s.name);
+
 async function renderErrors(main) {
   const since = errRange();
   const seg = el("div.seg", Object.entries(ERR_RANGES).map(([r, label]) =>
     el(`button.${Number(r) === since ? "on" : "off"}`, { type: "button", onclick: () => { safeSet("errRange", r); render(); } }, label)));
   const head = el("div.head",
-    el("div", el("h1", "Errors"), el("p.muted", "Error and warning lines from every container's and every pod's logs, newest first.")), seg);
+    el("div", el("h1", "Errors"), el("p.muted", "Error and warning lines from every container's and every pod's logs, newest first. Click a line to open its log on that line, or a name to go to the container.")), seg);
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div", el("div.card", el("p.muted", "Reading logs…")));
   main.replaceChildren(head, body);
@@ -79,7 +93,7 @@ async function renderErrors(main) {
       el("h2", "Who"),
       d.sources.length ? el("div.err-who", el("table.ctable", el("thead", el("tr", el("th", "Source"), el("th", "Errors"), el("th", "Warnings"), el("th", "Last"), el("th", ""))),
         el("tbody", d.sources.map((s) => el(`tr${errState.source === s.key ? ".on" : ""}`,
-          el("td", el(`span.pill.err-kind.${s.kind}`, s.kind), " ", el("strong", s.name),
+          el("td", el(`span.pill.err-kind.${s.kind}`, s.kind), " ", srcLink(s),
             s.project ? el("span.small.muted", ` ${s.project}`) : s.namespace ? el("span.small.muted", ` ${s.namespace}`) : null,
             s.state && s.state !== "running" ? el("span.small.muted", ` (${s.state})`) : null),
           el("td", s.errors ? el("strong.err-n", String(s.errors)) : "0"),
@@ -87,7 +101,8 @@ async function renderErrors(main) {
           el("td.nowrap", s.last ? new Date(s.last).toLocaleTimeString(undefined, { hour12: false }) : ""),
           el("td.actions",
             el("button.ghost.mini", { type: "button", onclick: () => { errState.source = errState.source === s.key ? "" : s.key; paint(d); } }, errState.source === s.key ? "Show all" : "Only this"),
-            el("button.ghost.mini", { type: "button", onclick: () => s.kind === "pod" ? showPodLogs({ namespace: s.namespace, name: s.name }) : showLogs(s.id, s.name) }, "Full log")))))))
+            s.kind === "pod" ? null : el("button.mini", { type: "button", onclick: () => goToSource(s) }, "Open container"),
+            el("button.ghost.mini", { type: "button", onclick: () => openLine(s, s.last) }, "Full log")))))))
         : el("p.empty", `Nothing logged an error or a warning. ${d.scanned} containers and pods read.`),
       d.podError ? el("p.small.muted", "Kubernetes pods: ", d.podError) : null);
 
@@ -101,9 +116,13 @@ async function renderErrors(main) {
       const rows = d.lines.filter((l) => (!errState.source || l.source === errState.source) && (!errState.level || l.level === errState.level) &&
         (!needle || l.text.toLowerCase().includes(needle) || (srcBy[l.source]?.name || "").toLowerCase().includes(needle))).slice(0, 600);
       box.replaceChildren(...(rows.length ? rows.map((l) => {
+        const s = srcBy[l.source];
         const line = logfmt.line(l.text, errState.q, l.level === "error");
         line.prepend(el("span.lg-ts", { title: l.ts }, l.ts ? new Date(l.ts).toLocaleTimeString(undefined, { hour12: false }) : ""), " ",
-          el("span.err-src", srcBy[l.source]?.name || l.source), " ");
+          s ? srcLink(s) : el("span.err-src", l.source), " ");
+        line.classList.add("err-line");
+        line.title = s?.kind === "pod" ? "Click to open this pod's logs" : "Click to open the log on this line";
+        line.addEventListener("click", () => { if (!getSelection().toString()) openLine(s, l.ts); });
         return line;
       }) : [el("p.muted", "No lines match.")]));
     };
