@@ -34,6 +34,7 @@ type Container struct {
 	Image            string
 	State            string // running, exited, ...
 	OOMKilled        bool
+	OOMHandled       bool // killed for memory, and its limit was raised since: no issue, and its job is covered
 	ExitCode         int
 	FinishedAt       time.Time
 	MemLimit         int64   // bytes, 0 = no limit
@@ -133,8 +134,8 @@ type Consumer struct {
 	Share       float64 `json:"share"` // percent of the VM's CPU or memory
 	Use         string  `json:"use"`   // "1.6 CPUs", "900 MiB"
 	Limit       string  `json:"limit,omitempty"`
-	Suggest     string  `json:"suggest"` // a value for the limits editor: "1" or "768m"
-	Field       string  `json:"field"`   // "cpus" or "memory"
+	Suggest     string  `json:"suggest,omitempty"` // a limit to set, "1" or "768m"; empty when it has one
+	Field       string  `json:"field"`             // "cpus" or "memory"
 }
 
 // Issue is one recommendation.
@@ -281,6 +282,9 @@ func Analyse(in Input) []Issue {
 	var out []Issue
 	covered := map[string]bool{} // jobs a container OOM issue already covers
 	for _, c := range in.Containers {
+		if c.OOMHandled {
+			covered[c.JobKey()] = true
+		}
 		if is := oomIssue(in, c); is != nil {
 			out = append(out, *is)
 			covered[c.JobKey()] = true
@@ -654,15 +658,18 @@ func cpuLimitIssue(in Input, c Container) *Issue {
 	if u.Snapshot {
 		over = "when checked"
 	}
+	// The kernel lets a container run a little past its quota between checks: 0.27 of a 0.25
+	// limit is "all of it", not 107%.
+	used := math.Min(u.CPU, c.CPUs)
 	return &Issue{
 		ID: "cpu:" + short(c.ID), Severity: sevWarn, Kind: KindCPULimit, Target: target(in, c),
 		Title: fmt.Sprintf("%s is held back by its CPU limit", c.Name),
 		Why: fmt.Sprintf("%s used %s of its %s CPU limit %s (%s). It is waiting for CPU, so it runs slower than it could. Raise the limit to %s.",
-			c.Name, CPUUse(u.CPU), CPUText(c.CPUs), over, pct(100*u.CPU/c.CPUs), cpusWord(want)),
-		Summary:     fmt.Sprintf("Using %s of a %s CPU limit (%s) %s", CPUUse(u.CPU), CPUText(c.CPUs), pct(100*u.CPU/c.CPUs), over),
-		Current:     map[string]any{"cpus": CPUText(c.CPUs), "used": CPUText(math.Round(u.CPU*100) / 100)},
+			c.Name, CPUUse(used), CPUText(c.CPUs), over, pct(100*used/c.CPUs), cpusWord(want)),
+		Summary:     fmt.Sprintf("Using %s of a %s CPU limit (%s) %s", CPUUse(used), CPUText(c.CPUs), pct(100*used/c.CPUs), over),
+		Current:     map[string]any{"cpus": CPUText(c.CPUs), "used": CPUText(math.Round(used*100) / 100)},
 		Recommended: map[string]any{"cpus": CPUText(want)},
-		Rows:        []Row{{"CPU limit", cpusWord(c.CPUs), cpusWord(want)}, {"CPU in use", CPUUse(u.CPU), CPUUse(u.CPU)}},
+		Rows:        []Row{{"CPU limit", cpusWord(c.CPUs), cpusWord(want)}, {"CPU in use", CPUUse(used), CPUUse(used)}},
 		Apply:       Apply{Type: "limits", Body: map[string]any{"cpus": CPUText(want)}, Label: "Set " + cpusWord(want)},
 		Snippets:    cpuSnippets(c, CPUText(want)),
 	}
@@ -711,7 +718,7 @@ func jobOOMIssue(in Input, j JobOOM) *Issue {
 		Title:  fmt.Sprintf("%s ran out of memory", name),
 		Why: fmt.Sprintf("Runs of %s were stopped for using too much memory %s in the last %d days, most recently %s. %s",
 			name, times, JobDays, agoText(in.Now, j.Last), basis),
-		Summary:     fmt.Sprintf("Out of memory %s in %d days, last %s; limit %s", times, JobDays, agoText(in.Now, j.Last), strings.ToLower(orNone(limit))),
+		Summary:     fmt.Sprintf("Out of memory %s in %d days, last %s; %s", times, JobDays, agoText(in.Now, j.Last), limitPhrase(limit)),
 		Current:     map[string]any{"memory": memFlagOrEmpty(limit)},
 		Recommended: map[string]any{"memory": MemFlag(mem)},
 		Rows:        []Row{{"Memory limit", orNone(limit), MemText(mem)}},
@@ -743,6 +750,13 @@ func memFlagOrEmpty(b int64) string {
 		return ""
 	}
 	return MemFlag(b)
+}
+
+func limitPhrase(b int64) string {
+	if b <= 0 {
+		return "its limit is not known"
+	}
+	return "limit " + MemText(b)
 }
 
 func orNone(b int64) string {
@@ -796,7 +810,9 @@ func vmCPUIssue(in Input) *Issue {
 		is.Apply = Apply{Type: "none"}
 	}
 	for _, c := range cons {
-		is.Snippets = append(is.Snippets, Snippet{Label: "Limit " + c.Name, Text: fmt.Sprintf("docker update --cpus %s %s", c.Suggest, c.Name)})
+		if c.Suggest != "" {
+			is.Snippets = append(is.Snippets, Snippet{Label: "Limit " + c.Name, Text: fmt.Sprintf("docker update --cpus %s %s", c.Suggest, c.Name)})
+		}
 	}
 	return is
 }
@@ -890,13 +906,12 @@ func topConsumers(in Input, field string) []Consumer {
 			if share < 10 {
 				continue
 			}
-			sug := NiceCPUs(u.CPU / 2)
-			if c.CPUs > 0 && sug >= c.CPUs {
-				sug = NiceCPUs(c.CPUs / 2)
-			}
-			cons = Consumer{ContainerID: c.ID, Name: c.Name, Share: math.Round(share), Use: CPUUse(u.CPU), Suggest: CPUText(sug), Field: field}
+			// a limit of half what it uses now; one that already has a limit is left alone
+			cons = Consumer{ContainerID: c.ID, Name: c.Name, Share: math.Round(share), Use: CPUUse(u.CPU), Field: field}
 			if c.CPUs > 0 {
 				cons.Limit = CPUText(c.CPUs)
+			} else {
+				cons.Suggest = CPUText(NiceCPUs(u.CPU / 2))
 			}
 		case "memory":
 			total := in.VM.MemTotal
@@ -908,9 +923,11 @@ func topConsumers(in Input, field string) []Consumer {
 				continue
 			}
 			peak := max(u.MemPeak, u.MemNow)
-			cons = Consumer{ContainerID: c.ID, Name: c.Name, Share: math.Round(share), Use: MemText(u.MemNow), Suggest: MemFlag(NiceMemory(int64(1.2 * float64(peak)))), Field: field}
+			cons = Consumer{ContainerID: c.ID, Name: c.Name, Share: math.Round(share), Use: MemText(u.MemNow), Field: field}
 			if c.MemLimit > 0 {
 				cons.Limit = MemFlag(c.MemLimit)
+			} else {
+				cons.Suggest = MemFlag(NiceMemory(int64(1.2 * float64(peak))))
 			}
 		}
 		out = append(out, cons)

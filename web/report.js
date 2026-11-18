@@ -212,9 +212,10 @@ async function renderReport(main) {
         usageRow("Memory inside the VM (while the Monitor was open)", u.guestMem, bytes),
         usageRow("Running containers", u.running, (v) => v.toFixed(v % 1 ? 1 : 0)))))));
 
+  const seenJobs = new Set(), firstOf = (j) => !seenJobs.has(j) && seenJobs.add(j); // one Fix per job, on its newest event
   const oom = el("div.card.viz", el("div.viz-head", el("h2", "Out of memory"), el("span.muted.small", `${t.oom} in this window`)),
     el("div.report-body", t.oomEvents.length
-      ? el("ul.report-list", t.oomEvents.map((e) => el("li", el("span.mono.small", when(e.t)), " ", el("strong", e.name), el("span.muted.small", ` ${e.job}`), " ", fixSlot(adviceFor.job(e.job)))))
+      ? el("ul.report-list", t.oomEvents.map((e) => el("li", el("span.mono.small", when(e.t)), " ", el("strong", e.name), el("span.muted.small", ` ${e.job}`), " ", firstOf(e.job) ? fixSlot(adviceFor.job(e.job)) : null)))
       : el("p.empty.small", "No container was killed for memory.")));
 
   main.replaceChildren(head, el("div.report", title, stats, el("div.viz-grid", tests, builds), el("div.viz-grid", disk, usage), oom,

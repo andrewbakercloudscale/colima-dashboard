@@ -182,7 +182,7 @@ func (s *Server) computeAdvice(ctx context.Context, p string) adviceResponse {
 				ac.FinishedAt = t
 			}
 			if ac.OOMKilled && c.State != "running" && s.advice.wasRaised(p+"/"+c.ID, d.FinishedAt) {
-				ac.OOMKilled = false // raised here since it stopped; it shows again if it runs out again
+				ac.OOMKilled, ac.OOMHandled = false, true // raised here since it stopped; it shows again if it runs out again
 			}
 		}
 		switch {
