@@ -141,7 +141,27 @@ func (s *Server) apiReport(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	days := rangeDays(since)
 	st := s.opt.History.Store
-	rep := history.MakeReport(p, days, now, st.Runs(p, since), st.Builds(p, since), st.Points(p, since))
+	// The period before the window, for "slower than the week before". Records older than Keep
+	// are pruned, so a 30 day report has none and compares the halves of its own window.
+	before := since.Add(-time.Duration(days) * 24 * time.Hour)
+	var prev history.Previous
+	runs, builds := []history.Run{}, []history.Build{}
+	for _, r := range st.Runs(p, before) {
+		if r.T.After(since) {
+			runs = append(runs, r)
+		} else {
+			prev.Runs = append(prev.Runs, r)
+		}
+	}
+	for _, b := range st.Builds(p, before) {
+		if b.T.After(since) {
+			builds = append(builds, b)
+		} else {
+			prev.Builds = append(prev.Builds, b)
+		}
+	}
+	rep := history.MakeReport(p, days, now, runs, builds, st.Points(p, since), prev)
+	rep.Outdated = s.outdated(r.Context(), p, now)
 	if q.Get("format") == "md" {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+exportName(p, fmt.Sprintf("report-%dd", days), "md", now)+`"`)
