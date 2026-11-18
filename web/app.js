@@ -36,6 +36,36 @@ function el(spec, attrs, ...children) {
   return node;
 }
 
+// Colour every button by what it does. Labels decide, so buttons added by any page script
+// (Kubernetes, Fix, palette, exports) pick it up without remembering a class. A .danger class
+// colours anything the labels miss; data-act-fixed on a button opts it out.
+const ACTS = [
+  ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
+  ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
+  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import)\b/],
+  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan)\b/],
+];
+function actOf(b) {
+  const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
+  for (const [act, re] of ACTS) if (t && re.test(t)) return act;
+  if (b.classList.contains("danger")) return "danger";
+  return t ? "neutral" : "";
+}
+const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact";
+function tagButtons(root = document) {
+  for (const b of root.querySelectorAll("button")) {
+    if (b.dataset.actFixed !== undefined || b.matches(NO_ACT)) continue;
+    const a = actOf(b);
+    if (b.dataset.act !== a) { if (a) b.dataset.act = a; else delete b.dataset.act; }
+  }
+}
+let tagQueued = false;
+new MutationObserver(() => {
+  if (tagQueued) return;
+  tagQueued = true;
+  requestAnimationFrame(() => { tagQueued = false; tagButtons(); });
+}).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
 async function api(method, path, body) {
   const opts = { method, headers: {}, credentials: "same-origin" };
   if (body !== undefined) {
