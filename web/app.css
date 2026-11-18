@@ -805,3 +805,16 @@ button.solid[data-act]:not([data-act="neutral"]) { background: var(--b); color: 
 .ws-tip, .ws-note { margin: 0; padding: 4px 18px 12px; font-size: 12.5px; color: var(--muted); }
 .ws-tip { color: var(--text); }
 @media (max-width: 600px) { .ws-row { grid-template-columns: minmax(0, 1fr) 52px; } .ws-bar { grid-column: 1 / -1; grid-row: 2; } }
+
+/* Polish for every page: table headers on a soft band, row hover, a coloured marker on card
+   titles, and friendlier empty states. */
+th { text-transform: uppercase; letter-spacing: .05em; font-size: 11.5px; background: var(--head-band); }
+thead th:first-child, tr:first-child > th:first-child { border-top-left-radius: 8px; }
+thead th:last-child, tr:first-child > th:last-child { border-top-right-radius: 8px; }
+tbody tr:hover > td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.card > h2:first-child, .card-head > h2 { display: flex; align-items: center; gap: 10px; }
+.card > h2:first-child::before, .card-head > h2::before {
+  content: ""; width: 4px; height: 18px; border-radius: 4px; flex: none;
+  background: linear-gradient(var(--hero-a), var(--accent));
+}
+.card.empty { text-align: center; padding: 28px 20px; border-style: dashed; background: color-mix(in srgb, var(--accent) 3%, var(--panel)); color: var(--muted); }
