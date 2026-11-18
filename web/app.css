@@ -1388,3 +1388,9 @@ button.vs-chip.on { background: color-mix(in srgb, var(--sc) 16%, var(--panel));
 @media (max-width: 900px) { .vs-charts { grid-template-columns: 1fr; } }
 .vs-table td:nth-child(2) { min-width: 220px; }
 @media (max-width: 640px) { .vs-table td:nth-child(2) { min-width: 0; } }
+.view { display: contents; }
+/* Inspect's mounts: long paths wrap instead of pushing Destination and Mode out of the card. */
+table.insp-mounts { table-layout: fixed; width: 100%; }
+table.insp-mounts th:nth-child(1) { width: 15%; } table.insp-mounts th:nth-child(2) { width: 39%; }
+table.insp-mounts th:nth-child(3) { width: 34%; } table.insp-mounts th:nth-child(4) { width: 12%; }
+table.insp-mounts td, table.insp-mounts th { overflow-wrap: anywhere; }

@@ -64,7 +64,15 @@ async function renderErrors(main) {
   const body = el("div", el("div.card", el("p.muted", "Reading logs…")));
   main.replaceChildren(head, body);
 
+  // The filter box lives across refreshes, so typing is not lost when the page redraws.
+  const q = el("input", { type: "search", placeholder: "Filter lines", value: errState.q, "aria-label": "Filter lines" });
+  let fill = () => {};
+  q.addEventListener("input", () => { errState.q = q.value; fill(); });
+  let oldBox = null;
   const paint = (d) => {
+    // Read focus first: moving q into the new card below detaches it and drops focus.
+    const focused = document.activeElement === q;
+    const [a, b] = focused ? [q.selectionStart, q.selectionEnd] : [0, 0];
     const srcBy = Object.fromEntries(d.sources.map((s) => [s.key, s]));
     const tiles = el("div.err-tiles",
       tile("Errors", d.errors, d.errors ? "bad" : "ok"),
@@ -107,11 +115,10 @@ async function renderErrors(main) {
       d.podError ? el("p.small.muted", "Kubernetes pods: ", d.podError) : null);
 
     // The lines themselves.
-    const q = el("input", { type: "search", placeholder: "Filter lines", value: errState.q, "aria-label": "Filter lines" });
     const lvl = el("div.seg", [["", "All"], ["error", "Errors"], ["warn", "Warnings"]].map(([v, label]) =>
       el(`button.${errState.level === v ? "on" : "off"}`, { type: "button", onclick: () => { errState.level = v; paint(d); } }, label)));
     const box = el("div.log.err-log");
-    const fill = () => {
+    fill = () => {
       const needle = errState.q.toLowerCase();
       const rows = d.lines.filter((l) => (!errState.source || l.source === errState.source) && (!errState.level || l.level === errState.level) &&
         (!needle || l.text.toLowerCase().includes(needle) || (srcBy[l.source]?.name || "").toLowerCase().includes(needle))).slice(0, 600);
@@ -126,11 +133,15 @@ async function renderErrors(main) {
         return line;
       }) : [el("p.muted", "No lines match.")]));
     };
-    q.addEventListener("input", () => { errState.q = q.value; fill(); });
     fill();
     const lines = el("section.card",
       el("div.viz-head", el("h2", "Lines"), el("div.err-tools", lvl, q)), box);
+    // Keep focus, caret and how far the lines were scrolled across the redraw.
+    const top = oldBox?.scrollTop || 0;
     body.replaceChildren(tiles, chart, who, lines);
+    box.scrollTop = top;
+    oldBox = box;
+    if (focused) { q.focus({ preventScroll: true }); try { q.setSelectionRange(a, b); } catch { /* search inputs in some browsers */ } }
   };
 
   const load = async () => {
@@ -144,7 +155,7 @@ async function renderErrors(main) {
     }
   };
   await load();
-  setTimer(load, 15000);
+  setTimer(load, 15000, main);
 }
 
 function tile(label, value, tone, sub) {

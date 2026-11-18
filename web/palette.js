@@ -67,9 +67,9 @@ function palBaseItems() {
     items.push({ kind: "Action", label: "Prune unused images", run: () => pruneImages() });
   }
   items.push({ kind: "Action", label: "Run diagnostics", run: () => palGo("diagnostics") });
-  items.push({ kind: "Action", label: "Toggle theme (light, dark, system)", run: () => {
-    const order = ["system", "light", "dark"];
-    const next = order[(order.indexOf(safeGet("theme") || "system") + 1) % 3];
+  // Flips what is showing, like the status bar button; "Match macOS" stays in Preferences.
+  items.push({ kind: "Action", label: "Toggle theme (light or dark)", run: () => {
+    const next = isDark() ? "light" : "dark";
     safeSet("theme", next);
     applyTheme();
     toast(`Theme: ${next}`);

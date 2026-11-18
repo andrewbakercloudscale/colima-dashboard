@@ -431,7 +431,11 @@ function firstShow(sel, node) {
   return $("#main").querySelector(sel) ? node : Charts.animate(node);
 }
 
-function setTimer(fn, ms) {
+// setTimer gives the page on screen one refresh timer. owner is the page's own view (the main
+// it was rendered into): a page still loading after the user moved on must not start its timer
+// on the new page.
+function setTimer(fn, ms, owner) {
+  if (owner && owner !== state.view) return;
   clearInterval(state.timer);
   // A timed refresh redraws charts that are already on screen: keep them still.
   state.timer = setInterval(() => {
@@ -460,11 +464,15 @@ async function render() {
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("active", a.dataset.tab === state.tab);
   clearInterval(state.timer);
   Charts.quiet(0); // a new page animates its charts in
-  const main = $("#main");
+  // Each render draws into its own view. A slow page that finishes after the user has moved
+  // on writes into its detached view, so it can never cover the page now on screen.
+  const view = el("div.view");
+  state.view = view;
+  $("#main").replaceChildren(view);
   try {
-    await tabs[state.tab](main);
+    await tabs[state.tab](view);
   } catch (e) {
-    main.replaceChildren(el("div.notice.bad", e.message));
+    view.replaceChildren(el("div.notice.bad", e.message));
   }
 }
 
@@ -658,7 +666,7 @@ async function renderContainers(main) {
   loadAdvice().catch(() => { /* the list works without it */ });
   await load();
   openRouted(list);
-  setTimer(load, 4000);
+  setTimer(load, 4000, main);
 }
 
 // #containers?name=x&open=logs|inspect|shell opens that container's drawer once per navigation.
@@ -666,6 +674,11 @@ function openRouted(list) {
   const { name, open } = state.route?.params || {};
   if (!name || state.route.done) return;
   state.route.done = true;
+  // Drop name and open from the address, so a later redraw does not open the drawer again.
+  // replaceState fires no hashchange.
+  const rest = new URLSearchParams(state.route.params);
+  rest.delete("name"); rest.delete("open");
+  history.replaceState(null, "", `#${state.route.page}${rest.toString() ? "?" + rest : ""}`);
   const c = list.find((x) => x.Names.some((n) => n.replace(/^\//, "") === name) || x.Id.startsWith(name));
   if (!c) { toast(`No container called ${name}`, true); return; }
   if (open === "shell" && c.State === "running") showShell(c.Id, name);
@@ -952,7 +965,7 @@ async function showInspect(id, name) {
     }
     const mounts = doc.Mounts || [];
     if (mounts.length) {
-      parts.push(el("div.card.info-card", cardHead("t2", "folder", "Mounts", String(mounts.length)), el("table.insp-table",
+      parts.push(el("div.card.info-card", cardHead("t2", "folder", "Mounts", String(mounts.length)), el("table.insp-table.insp-mounts",
         el("thead", el("tr", ["Type", "Source", "Destination", "Mode"].map((h) => el("th", h)))),
         el("tbody", mounts.map((m) => el("tr", el("td", m.Type), el("td.mono.small", m.Name || m.Source), el("td.mono.small", m.Destination), el("td", m.RW ? "rw" : "ro")))))));
     }
@@ -1226,7 +1239,7 @@ async function removeImage(i, label) {
 
 async function pruneImages() {
   if (!await confirmBox("Prune unused images?", "Every image no container uses is deleted, tagged or not.", "Prune", true)) return;
-  try { const r = await api("POST", `${P()}/images/prune`); toast(`Removed ${r.deleted} images, freed ${bytes(r.spaceReclaimed)}`); render(); } catch (e) { toast(e.message, true); }
+  try { const r = await api("POST", `${P()}/images/prune`); toast(`Removed ${r.deleted} image${r.deleted === 1 ? "" : "s"}, freed ${bytes(r.spaceReclaimed)}`); render(); } catch (e) { toast(e.message, true); }
 }
 
 function scanImage(ref) {
@@ -1266,7 +1279,7 @@ async function removeVolume(v) {
 
 async function pruneVolumes() {
   if (!await confirmBox("Prune unused volumes?", "Every volume no container uses is deleted, with its data.", "Prune", true)) return;
-  try { const r = await api("POST", `${P()}/volumes/prune`); toast(`Removed ${r.deleted} volumes, freed ${bytes(r.spaceReclaimed)}`); render(); } catch (e) { toast(e.message, true); }
+  try { const r = await api("POST", `${P()}/volumes/prune`); toast(`Removed ${r.deleted} volume${r.deleted === 1 ? "" : "s"}, freed ${bytes(r.spaceReclaimed)}`); render(); } catch (e) { toast(e.message, true); }
 }
 
 // ---------- Snapshots ----------
@@ -1398,6 +1411,9 @@ function applyTheme() {
   if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   else delete document.documentElement.dataset.theme;
   drawThemeBtn();
+  // Every way of changing the theme keeps Preferences' select in step.
+  const sel = document.querySelector('select[aria-label="Theme"]');
+  if (sel) sel.value = t === "light" || t === "dark" ? t : "system";
 }
 
 // The status bar's sun/moon button flips between light and dark. "Follow the system" stays in Preferences.
@@ -1417,8 +1433,6 @@ function drawThemeBtn() {
 document.getElementById("sb-theme")?.addEventListener("click", () => {
   safeSet("theme", isDark() ? "light" : "dark");
   applyTheme();
-  const sel = document.querySelector('select[aria-label="Theme"]');
-  if (sel) sel.value = safeGet("theme");
 });
 darkQuery.addEventListener("change", drawThemeBtn);
 applyTheme();
@@ -2138,7 +2152,7 @@ async function renderMonitor(main) {
     const body = el("div", { id: "monitor" }, el("div.card", el("p.muted", "Loading…")));
     main.replaceChildren(head, body);
     await drawHistory(body, LONG[range]);
-    setTimer(() => drawHistory(body, LONG[range]), 60000);
+    setTimer(() => drawHistory(body, LONG[range]), 60000, main);
     return;
   }
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
@@ -2160,7 +2174,7 @@ async function renderMonitor(main) {
     const last = metrics.samples[metrics.samples.length - 1];
     if (last?.guest && Date.now() - last.t < 10e3) recs.tick();
   };
-  setTimer(tick, 2000);
+  setTimer(tick, 2000, main);
 }
 
 function drawMonitor(dataOnly) {
@@ -2195,7 +2209,7 @@ function drawMonitor(dataOnly) {
     el("div.hero-foot", el("span.hero-foot-label", "I/O"),
       el("span.chip", `Network ↓ ${rate(g.netRx)}  ↑ ${rate(g.netTx)}`),
       el("span.chip", `Disk read ${rate(g.diskRead)}  write ${rate(g.diskWrite)}`),
-      el("span.chip", `${Object.keys(last.containers).length} running containers`)));
+      el("span.chip", `${Object.keys(last.containers).length} running container${Object.keys(last.containers).length === 1 ? "" : "s"}`)));
 
   // containers grouped by service (compose run containers join their service), ordered by slot
   // so colors and order follow the entity

@@ -137,7 +137,7 @@ async function renderKubernetes(main) {
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches("input, select, textarea")) return;
     if (!$("#drawer").hidden) return;
     drawK8sView(body, true);
-  }, 15000);
+  }, 15000, main);
 }
 
 function noteNamespaces(list) {
