@@ -92,6 +92,18 @@ type Hub struct {
 
 	mu   sync.Mutex
 	cols map[string]*collector
+	mac  *MacWatcher
+}
+
+// Mac returns what the whole Mac has been busy with lately ("why is it slow?").
+func (h *Hub) Mac() MacLoad {
+	h.mu.Lock()
+	if h.mac == nil {
+		h.mac = NewMacWatcher()
+	}
+	w := h.mac
+	h.mu.Unlock()
+	return w.Get()
 }
 
 // NewHub returns an empty hub.

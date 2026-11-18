@@ -42,7 +42,7 @@ function el(spec, attrs, ...children) {
 const ACTS = [
   ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
   ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
-  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import)\b/],
+  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward)\b/],
   ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan)\b/],
 ];
 function actOf(b) {
@@ -2059,6 +2059,37 @@ async function pollMetrics() {
   }
 }
 
+// "Why is it slow?": what the whole Mac is busy with, so a slow container can be told apart from
+// a Mac that is flat out on something else. The server samples only while this page asks.
+async function pollMac() {
+  try { metrics.mac = await api("GET", "/api/mac/load"); } catch { metrics.mac = null; }
+}
+function macCard() {
+  const m = metrics.mac;
+  if (!m) return null;
+  const open = safeGet("whyslow") !== "closed";
+  const tone = !m.ready ? "ok" : m.busy >= 70 ? "bad" : m.busy >= 40 ? "warn" : "ok";
+  const mins = Math.max(1, Math.round(m.windowSec / 60));
+  const head = !m.ready ? "Measuring… first figures in about 10 seconds"
+    : `Mac ${Math.round(m.busy)}% busy, ${Math.round(m.kernel)}% kernel, ${Math.round(m.spawnPerSec)} new process${Math.round(m.spawnPerSec) === 1 ? "" : "es"} a second`;
+  const max = Math.max(1, ...m.apps.map((a) => a.cpu));
+  const d = el(`details.card.whyslow.${tone}`, { open },
+    el("summary",
+      el("span.ws-title", el("span.ws-icon", tone === "ok" ? "✓" : "🐢"), m.ready && m.windowSec >= 240 ? "Why is it slow? Last 5 min" : `Why is it slow? Last ${m.ready ? mins : 5} min`),
+      el("span.ws-head", head)),
+    m.ready ? el("div.ws-list", m.apps.map((a) => {
+      const bar = el("span.ws-fill"); bar.style.width = `${(a.cpu / max) * 100}%`;
+      return el(`div.ws-row${a.vm ? ".vm" : ""}`,
+        el("div.ws-name", el("strong", a.name), a.vm ? el("span.pill.running", "Colima VM") : null,
+          el("span.ws-detail", `${a.processes} process${a.processes === 1 ? "" : "es"}: ${a.commands.join(", ")}`)),
+        el("span.ws-bar", bar), el("span.ws-pct", pct(a.cpu)));
+    })) : null,
+    m.ready && m.spawnPerSec >= 30 ? el("p.ws-tip", "Lots of short-lived processes: usually a script or build in a loop, or security software checking each one. They cost kernel time, which slows everything, the VM included.") : null,
+    m.ready ? el("p.ws-note", `Share of all ${m.cores} cores on your Mac, averaged over the last ${mins} minute${mins === 1 ? "" : "s"} while this page was open.`) : null);
+  d.addEventListener("toggle", () => safeSet("whyslow", d.open ? "open" : "closed"));
+  return d;
+}
+
 const RANGES = { "5m": 5 * 60e3, "15m": 15 * 60e3, "1h": 60 * 60e3 };
 // Long ranges come from the history kept on disk (a sample every 5 minutes), not the live samples.
 const LONG = { "1d": 1, "7d": 7, "30d": 30 };
@@ -2113,12 +2144,12 @@ async function renderMonitor(main) {
   body.addEventListener("pointerleave", () => { metrics.hovering = false; });
   // Fetch before swapping the page in, so a redraw goes straight from the old charts to the new
   // ones instead of flashing an empty page while the request is out.
-  try { await pollMetrics(); } catch (e) { metrics.error = e.message; }
+  try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
   if (state.tab !== "monitor") return; // moved to another page meanwhile
   main.replaceChildren(head, body);
   drawMonitor(true);
   const tick = async () => {
-    try { await pollMetrics(); } catch (e) { metrics.error = e.message; }
+    try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
     if (!metrics.hovering && !body.querySelector("details.xmenu[open]") && document.body.contains(body)) drawMonitor(true);
   };
   setTimer(tick, 2000);
@@ -2136,7 +2167,7 @@ function drawMonitor(dataOnly) {
   let last = null;
   for (let i = all.length - 1; i >= 0 && !last; i--) if (all[i].guest) last = all[i];
   if (!last) {
-    body.replaceChildren(el("div.card.empty", metrics.error ? el("p", metrics.error) : el("p", "Collecting the first samples… graphs appear in a few seconds.")));
+    body.replaceChildren(...[macCard()].filter(Boolean), el("div.card.empty", metrics.error ? el("p", metrics.error) : el("p", "Collecting the first samples… graphs appear in a few seconds.")));
     return;
   }
   const cut = last.t - RANGES[range];
@@ -2247,7 +2278,7 @@ function drawMonitor(dataOnly) {
       : el("p.empty", "No running containers."));
 
   const note = el("p.small.muted", "Sampled every 2 seconds while this page is open; sampling stops 5 minutes after you leave. Gaps in the lines are times nobody was watching.");
-  body.replaceChildren(hero, el("div.viz-grid", rightNow, cpuArea), el("div.viz-grid", memArea, vmMem), el("div.viz-grid", net, disk), el("div.viz-grid", macCpu, macMem), table, note);
+  body.replaceChildren(...[macCard()].filter(Boolean), hero, el("div.viz-grid", rightNow, cpuArea), el("div.viz-grid", memArea, vmMem), el("div.viz-grid", net, disk), el("div.viz-grid", macCpu, macMem), table, note);
 }
 
 tabs.monitor = renderMonitor;
