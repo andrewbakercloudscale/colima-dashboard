@@ -1344,7 +1344,29 @@ function applyTheme() {
   const t = safeGet("theme");
   if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   else delete document.documentElement.dataset.theme;
+  drawThemeBtn();
 }
+
+// The status bar's sun/moon button flips between light and dark. "Follow the system" stays in Preferences.
+const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+function isDark() { const t = document.documentElement.dataset.theme; return t ? t === "dark" : darkQuery.matches; }
+function drawThemeBtn() {
+  const b = document.getElementById("sb-theme");
+  if (!b) return;
+  const dark = isDark();
+  const label = dark ? "Switch to light mode" : "Switch to dark mode";
+  b.title = label; b.setAttribute("aria-label", label);
+  b.innerHTML = dark
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>';
+}
+document.getElementById("sb-theme")?.addEventListener("click", () => {
+  safeSet("theme", isDark() ? "light" : "dark");
+  applyTheme();
+  const sel = document.querySelector('select[aria-label="Theme"]');
+  if (sel) sel.value = safeGet("theme");
+});
+darkQuery.addEventListener("change", drawThemeBtn);
 applyTheme();
 
 // Notifications and the menu bar icon, plus the latest alerts.

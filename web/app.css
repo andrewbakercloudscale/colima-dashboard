@@ -603,7 +603,8 @@ th.pick input, td.pick input { width: 16px; height: 16px; margin: 0; vertical-al
 .pal-foot { display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
 .pal-more { margin-left: auto; }
 .pal kbd, .pal-hint-btn { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 2px 5px; background: var(--bg); color: var(--muted); margin-right: 2px; }
-.pal-hint-btn { margin-left: auto; padding: 4px 6px; cursor: pointer; }
+.pal-hint-btn { padding: 4px 6px; cursor: pointer; flex: none; }
+.statusbar .pal-hint-btn { margin-right: -8px; }
 .pal-hint-btn:hover { color: var(--text); filter: none; }
 .pal-help { padding: 18px 20px; }
 .pal-help-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -651,3 +652,7 @@ td.limits { white-space: nowrap; line-height: 1.5; }
 .log .svc-0 { color: #7cc0ff; } .log .svc-1 { color: #f9a26c; } .log .svc-2 { color: #5ee0a8; } .log .svc-3 { color: #f5c542; }
 .log .svc-4 { color: #f49ac1; } .log .svc-5 { color: #b4a7ff; } .log .svc-6 { color: #67d8e6; } .log .svc-7 { color: #d4e157; }
 @media (max-width: 600px) { .log-meta { margin-left: 0; width: 100%; } .log .svc { min-width: 0; } }
+
+/* Dark mode toggle in the status bar */
+.sb-theme { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); color: var(--text); cursor: pointer; flex: none; }
+.sb-theme:hover { background: var(--accent-soft); }
