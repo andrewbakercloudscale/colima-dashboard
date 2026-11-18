@@ -1392,7 +1392,7 @@ async function renderDiagnostics(main) {
     checks.replaceChildren(
       el("div.card-head", el("span.muted.small", hidden ? `${hidden} muted check${hidden === 1 ? "" : "s"} hidden` : `${list.length} checks`),
         el("label.check.small", showMuted, "Show muted")),
-      el("table", el("tbody", visible.map((c) => {
+      el("table.diag", el("tbody", visible.map((c) => {
         const problem = c.state === "fail" || c.state === "warn";
         const mute = problem ? el("button.ghost.mini", { type: "button" }, muted.has(muteKey(c)) ? "Unmute" : "Mute") : null;
         if (mute) mute.addEventListener("click", () => { setMuted(c, !isMuted(c)); setDiagBadge(list); paint(); });
