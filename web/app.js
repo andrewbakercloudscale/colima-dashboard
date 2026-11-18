@@ -361,8 +361,10 @@ function startProfile(opts) {
 }
 
 async function render() {
-  const tab = (location.hash || "#general").slice(1);
+  // Hash routes take parameters: #containers?name=web-1&open=logs, #images?q=shop*.
+  const [tab, qs] = (location.hash || "#general").slice(1).split("?");
   state.tab = tabs[tab] ? tab : "general";
+  state.route = { page: state.tab, params: Object.fromEntries(new URLSearchParams(qs || "")) };
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("active", a.dataset.tab === state.tab);
   clearInterval(state.timer);
   const main = $("#main");
@@ -461,7 +463,7 @@ async function renderGeneral(main) {
 async function renderContainers(main) {
   const head = el("div.head",
     el("div", el("h1", "Containers"), el("p.muted", "Running and stopped containers, grouped by Compose project.")),
-    el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: safeGet("cfilter") || "" })));
+    el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: state.route?.params.q ?? safeGet("cfilter") ?? "" })));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, body);
@@ -497,7 +499,29 @@ async function renderContainers(main) {
   };
   filter.addEventListener("input", draw);
   await load();
+  openRouted(list);
   setTimer(load, 4000);
+}
+
+// #containers?name=x&open=logs|inspect|shell opens that container's drawer once per navigation.
+function openRouted(list) {
+  const { name, open } = state.route?.params || {};
+  if (!name || state.route.done) return;
+  state.route.done = true;
+  const c = list.find((x) => x.Names.some((n) => n.replace(/^\//, "") === name) || x.Id.startsWith(name));
+  if (!c) { toast(`No container called ${name}`, true); return; }
+  if (open === "shell" && c.State === "running") showShell(c.Id, name);
+  else if (open === "inspect") showInspect(c.Id, name);
+  else showLogs(c.Id, name);
+}
+
+function linkBtn(page, params) {
+  const btn = el("button.ghost.mini", { type: "button", title: "Copy a link that opens this again" }, "Copy link");
+  btn.addEventListener("click", async () => {
+    const url = `${location.origin}${location.pathname}#${page}?${new URLSearchParams(params)}`;
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch { toast("Copy failed", true); }
+  });
+  return btn;
 }
 
 function containerRow(c) {
@@ -584,7 +608,8 @@ function showLogs(id, name) {
   stamps.addEventListener("change", start);
   openDrawer(`Logs: ${name}`,
     el("div.toolbar", search, el("label.check", follow, "Follow"), el("label.check", stamps, "Timestamps"),
-      el("button.ghost.mini", { type: "button", onclick: () => download(`${name}.log`, lines.map((l) => l.t).join("\n")) }, "Download")),
+      el("button.ghost.mini", { type: "button", onclick: () => download(`${name}.log`, lines.map((l) => l.t).join("\n")) }, "Download"),
+      linkBtn("containers", { name, open: "logs" })),
     log);
   start();
 }
@@ -753,6 +778,7 @@ function download(name, text) {
 
 async function showInspect(id, name) {
   openDrawer(`Inspect: ${name}`, el("p.muted", "Loading…"));
+  $("#drawertitle").append(" ", linkBtn("containers", { name, open: "inspect" }));
   try {
     const [doc, stats] = await Promise.all([
       api("GET", `${P()}/containers/${encodeURIComponent(id)}`),
@@ -945,7 +971,7 @@ async function renderImages(main) {
     const hit = x.tags.filter((t) => m([t.toLowerCase()]));
     return filter.value.trim() && hit.length && hit.length < x.tags.length ? hit : null;
   };
-  const filter = el("input", { type: "search", placeholder: "Filter, e.g. shop* or *:dev", "aria-label": "Filter images", value: safeGet("ifilter") || "", size: 30 });
+  const filter = el("input", { type: "search", placeholder: "Filter, e.g. shop* or *:dev", "aria-label": "Filter images", value: state.route?.params.q ?? safeGet("ifilter") ?? "", size: 30 });
   const all = el("input", { type: "checkbox", "aria-label": "Select all shown images" });
   const count = el("span.small.muted");
   const bulk = el("button.ghost.mini.danger", { type: "button", disabled: true }, "Remove selected");

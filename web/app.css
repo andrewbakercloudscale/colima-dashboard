@@ -588,3 +588,27 @@ details.card summary { cursor: pointer; }
 .bulkbar .grow { flex: 1; }
 th.pick, td.pick { width: 28px; padding-right: 0; }
 th.pick input, td.pick input { width: 16px; height: 16px; margin: 0; vertical-align: middle; cursor: pointer; }
+
+/* Command palette */
+.pal { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .35); display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; }
+.pal-card { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); width: min(600px, 100%); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden; }
+.pal-card > input { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 14px 16px; font-size: 15px; background: transparent; color: var(--text); width: 100%; outline: none; }
+.pal-list { list-style: none; margin: 0; padding: 6px; overflow: auto; flex: 1; }
+.pal-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pal-item[aria-selected="true"] { background: var(--accent-soft); }
+.pal-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-hint { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.pal-kind { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pal-empty { padding: 14px 10px; color: var(--muted); }
+.pal-foot { display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+.pal-more { margin-left: auto; }
+.pal kbd, .pal-hint-btn { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 2px 5px; background: var(--bg); color: var(--muted); margin-right: 2px; }
+.pal-hint-btn { margin-left: auto; padding: 4px 6px; cursor: pointer; }
+.pal-hint-btn:hover { color: var(--text); filter: none; }
+.pal-help { padding: 18px 20px; }
+.pal-help-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.pal-help-head h2 { margin: 0; }
+.pal-keys { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; overflow: auto; }
+.pal-keys dt { white-space: nowrap; }
+.pal-keys dd { margin: 0; }
+@media (max-width: 760px) { .pal { padding-top: 16px; } .pal-hint, .pal-foot { display: none; } .pal-card { max-height: calc(100vh - 32px); } }
