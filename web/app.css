@@ -1057,3 +1057,76 @@ tr.on td { background: color-mix(in srgb, var(--bad) 8%, transparent); }
 button.link.err-go { display: inline; font-weight: 700; min-height: 0; box-shadow: none; }
 .log button.link.err-go { display: inline-block; min-width: 14ch; color: #7cc0ff; }
 .log .lg-focus { background: rgba(253, 224, 71, .2); outline: 1px solid #eab308; border-radius: 3px; }
+
+/* ---------- Drawers: every one gets a coloured heading and card styling ---------- */
+.drawer-card header.dhead { background: linear-gradient(120deg, color-mix(in srgb, var(--hue) 16%, var(--panel)), var(--panel) 70%);
+  border-bottom: 1px solid color-mix(in srgb, var(--hue) 25%, var(--line)); padding: 14px 20px; gap: 12px; }
+#drawertitle { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; font-size: 17px; }
+#drawertitle .ichip { width: 38px; height: 38px; border-radius: 11px; background: color-mix(in srgb, var(--hue) 20%, var(--panel)); }
+.dtitle { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.dkind { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--hue); }
+.dname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#drawertitle > button, #drawertitle > a { flex: none; }
+.drawer-body { background: color-mix(in srgb, var(--accent) 2.5%, var(--bg, var(--panel))); padding: 18px 20px; gap: 14px; }
+.drawer-body > :not(.log):not(.yaml-edit) { flex-shrink: 0; }
+.drawer-body > .card { margin-bottom: 0; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+/* a plain card title in a drawer becomes a heading band */
+.drawer-body .card:not(.info-card) { overflow: hidden; }
+.drawer-body .card:not(.info-card) > h2:first-child, .drawer-body .card:not(.info-card) > h3:first-child, .drawer-body .card:not(.info-card) > .card-head:first-child {
+  margin: -16px -16px 14px; padding: 12px 16px; font-size: 16px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 9%, var(--panel)), var(--panel) 75%); border-bottom: 1px solid var(--line); }
+.drawer-body .card:not(.info-card) > .card-head:first-child > h2 { margin: 0; }
+.drawer-body .info-card .info-head { padding: 12px 18px; }
+.drawer-body .info-card > :not(.info-head) { margin-left: 18px; margin-right: 18px; }
+.drawer-body .info-card > p.small:nth-child(2) { margin-top: 12px; }
+.drawer-body .tiles { padding: 0; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.tile.ok .tile-value { color: var(--ok); } .tile.bad .tile-value { color: var(--bad); }
+.kv.kv-small > dt, .kv.kv-small > dd { font-size: 12.5px; padding: 7px 0; }
+.kv.kv-rows > dd .pill { margin-right: 4px; }
+.pill.soft { background: var(--accent-soft); color: var(--accent); }
+pre.code-block { margin: 0; padding: 10px 12px; border-radius: 8px; background: #0f172a; color: #e2e8f0; font-size: 12.5px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 400; }
+.insp-table { margin: 10px 0 4px; }
+.insp-table td.env-k { font-weight: 600; width: 38%; overflow-wrap: anywhere; }
+.insp-table tbody tr:nth-child(even) > td { background: color-mix(in srgb, var(--accent) 3%, transparent); }
+/* log drawers: the controls sit on a panel */
+.drawer-body .log-bar { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+/* files and volumes */
+.files-bar { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.crumbs { gap: 6px; }
+button.link.crumb { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; color: var(--text);
+  background: color-mix(in srgb, var(--series-4) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--series-4) 25%, var(--line)); }
+button.link.crumb:hover { text-decoration: none; border-color: var(--series-4); }
+button.link.crumb .ichip { --hue: var(--series-4); width: 18px; height: 18px; background: none; }
+button.link.crumb .ichip svg { width: 15px; height: 15px; }
+.crumb-sep { color: var(--muted); }
+.files-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.files-card .files-head { margin-bottom: 10px; }
+.fname { display: inline-flex; align-items: center; gap: 10px; }
+.ficon.ichip { display: inline-grid; place-items: center; text-align: initial; width: 28px; height: 28px; border-radius: 8px; --hue: var(--series-1); color: var(--hue); }
+.ficon.ichip svg { width: 15px; height: 15px; }
+.ficon.ichip.dir, .ficon.ichip.dirlink { --hue: var(--series-4); color: var(--hue); }
+.ficon.ichip.link { --hue: var(--series-7); }
+.files-table tr:has(.ficon.dir) .fname button { font-weight: 650; }
+.fsize { display: inline-flex; flex-direction: column; gap: 3px; min-width: 70px; }
+.fbar { display: block; height: 4px; border-radius: 4px; background: var(--line); position: relative; overflow: hidden; }
+.fbar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--series-1); border-radius: 4px; }
+.viewer { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+@media (max-width: 520px) {
+  .drawer-card header.dhead { padding: 12px 14px; }
+  .drawer-body { padding: 14px 12px; }
+  #drawertitle { font-size: 15px; }
+}
+.drawer-body .term-bar { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.vmlog-card .log { max-height: 55vh; min-height: 120px; margin-top: 14px; }
+.drawer-body .insp-tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+/* Confirm and prompt boxes: same heading band as drawers, red when the action deletes */
+.modal-card { padding: 0; overflow: hidden; --hue: var(--accent); border: 1px solid var(--line); border-radius: 14px; }
+.modal-card:has(#modalok.danger), .modal-card:has(#modalok[data-act="danger"]) { --hue: var(--bad); }
+#modaltitle { margin: 0; padding: 16px 20px; font-size: 17px; display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--hue) 14%, var(--panel)), var(--panel) 75%); border-bottom: 1px solid var(--line); }
+#modaltitle::before { content: ""; width: 4px; height: 18px; border-radius: 4px; background: var(--hue); flex: none; }
+#modalbody { padding: 16px 20px 0; }
+.modal-card .modal-actions { padding: 14px 20px; margin-top: 16px; background: color-mix(in srgb, var(--accent) 3%, var(--panel)); border-top: 1px solid var(--line); }
+.drawer-body .insp-tiles .tile { padding: 10px 12px; gap: 10px; }
+.drawer-body .insp-tiles .tile-value { font-size: 15px; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
