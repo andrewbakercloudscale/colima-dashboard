@@ -163,7 +163,7 @@ async function renderReport(main) {
   const title = el("div.report-title", el("h2", `Colima Dashboard report: ${r.profile}`),
     el("p.muted.small", `Last ${days === 1 ? "day" : `${days} days`}, ${when(r.from)} to ${when(r.to)}`));
   const stats = el("div.stat-row",
-    reportStat(pctRate(r.uptime.fraction), "uptime", dur(r.uptime.seconds) + " running and recorded"),
+    reportStat(pctRate(r.uptime.fraction), "running", dur(r.uptime.seconds) + " seen running; time with the dashboard closed counts as not running"),
     reportStat(pctRate(t.passRate), "tests passed", `of ${t.own} runs that ended on their own`, t.passRate >= 0 && t.passRate < 0.8 ? "bad" : ""),
     reportStat(String(t.runs), "runs", `${t.passed} passed, ${t.failed} failed, ${t.oom} out of memory`),
     reportStat(String(t.flaky.length), "flaky jobs", "passed and failed in their last 10 runs", t.flaky.length ? "warn" : ""),
