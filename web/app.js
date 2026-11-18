@@ -494,6 +494,7 @@ const CHIP_PATHS = {
   restart: '<path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
   code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/><path d="m3 17.5 9 5 9-5" opacity=".55"/>',
+  term: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
 };
 function chip(name) {
@@ -758,7 +759,7 @@ async function showShell(id, name, opts) {
   const status = el("span.term-status", el("i"), "Connecting…");
   const setStatus = (text, tone) => { status.className = `term-status ${tone || ""}`; status.replaceChildren(el("i"), text); };
   openDrawer(`Shell: ${name}`,
-    el("div.term-bar", status, el("span.muted.small", "bash, or sh when the image has no bash. Closing this panel ends the shell.")), box);
+    el("div.term-bar", status, el("span.muted.small", opts?.note || "bash, or sh when the image has no bash. Closing this panel ends the shell.")), box);
   try { await loadXterm(); } catch (e) { setStatus(e.message, "bad"); return; }
   const term = new window.Terminal({
     cursorBlink: true, fontSize: 13, scrollback: 5000,
@@ -1643,6 +1644,7 @@ const tabs = {
 const NAV_ICONS = {
   general: ["#2a78d6", "M3 12h4l3 8 4-16 3 8h4"],
   monitor: ["#7c3aed", "M3 3v18h18M7 15l4-4 3 3 5-6"],
+  shells: ["#db2777", "M3 5h18v14H3zM7 9l3 3-3 3M13 15h4"],
   containers: ["#0f766e", "M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10"],
   images: ["#c2410c", "M4 6h16v12H4zM4 14l5-4 4 3 3-2 4 3"],
   volumes: ["#b45309", "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"],

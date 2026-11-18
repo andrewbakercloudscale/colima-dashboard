@@ -1289,3 +1289,39 @@ svg.donut.anim text { animation: ch-fade-up .6s ease-out both; animation-delay: 
 @media (prefers-reduced-motion: reduce) {
   .anim, .anim *, .bl-grade.big { animation: none !important; }
 }
+
+/* ---------- Shells page ---------- */
+.sh-prefs { gap: 10px; flex-wrap: wrap; }
+.sh-pref { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.sh-pref > span { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.sh-pref select, .sh-pref input { border: 0; background: transparent; min-width: 0; width: auto; padding: 6px 4px; }
+.sh-pref input { width: 150px; }
+.sh-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.sh-recent[hidden] { display: none; }
+.sh-recent-label { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-right: 4px; }
+button.sh-chip { border-radius: 99px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sh-vm { border-color: color-mix(in srgb, var(--series-3) 35%, var(--line)); }
+.sh-vm-body { display: flex; gap: 24px; align-items: center; padding-top: 14px; }
+.sh-vm-text { flex: 1; min-width: 0; }
+.sh-vm-text p { margin: 0 0 8px; }
+.sh-vm-actions { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.sh-vm-actions button { white-space: nowrap; }
+.sh-filter { padding-top: 14px; }
+.sh-filter input { width: 100%; max-width: 360px; }
+.sh-list { display: flex; flex-direction: column; margin-top: 10px; }
+.sh-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line);
+  animation: ch-fade-up .35s ease-out both; animation-delay: calc(var(--i, 0) * 25ms); }
+.sh-row:last-child { border-bottom: 0; }
+.sh-row:hover { background: color-mix(in srgb, var(--series-1) 6%, transparent); border-radius: 8px; }
+.sh-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.sh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sh-main strong { overflow-wrap: anywhere; }
+.sh-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sh-row button { flex: none; }
+@media (max-width: 640px) {
+  .sh-vm-body { flex-direction: column; align-items: stretch; }
+  .sh-vm-actions { flex-direction: row; flex-wrap: wrap; }
+  .sh-pref input { width: 120px; }
+}
+@media (prefers-reduced-motion: reduce) { .sh-row { animation: none; } }

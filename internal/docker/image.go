@@ -93,3 +93,38 @@ func (c *Client) ExportImage(ctx context.Context, ref string, fn func(io.Reader)
 	defer r.Close()
 	return fn(r)
 }
+
+// HelperLabel marks the short-lived containers Colima Dashboard starts for itself.
+const HelperLabel = "io.github.colima-dashboard.helper"
+
+// RunHelper starts a container from image running cmd with the given host settings (for example
+// Privileged and PidMode "host") and returns its id. It removes itself when cmd ends.
+func (c *Client) RunHelper(ctx context.Context, image, name string, cmd []string, host map[string]any) (string, error) {
+	if !ValidRef(image) {
+		return "", fmt.Errorf("invalid image reference %q", image)
+	}
+	host["AutoRemove"] = true
+	body, _ := json.Marshal(map[string]any{
+		"Image": image, "Cmd": cmd, "HostConfig": host,
+		"Labels": map[string]string{HelperLabel: name},
+	})
+	q := url.Values{}
+	if name != "" {
+		q.Set("name", name)
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/containers/create", q, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	var created struct{ ID string }
+	err = json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if err != nil || created.ID == "" {
+		return "", fmt.Errorf("could not create a helper container from %s: %v", image, err)
+	}
+	if err := c.ContainerAction(ctx, created.ID, "start"); err != nil {
+		_ = c.RemoveContainer(context.Background(), created.ID, true)
+		return "", err
+	}
+	return created.ID, nil
+}

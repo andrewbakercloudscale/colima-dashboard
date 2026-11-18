@@ -40,9 +40,10 @@ export LS_COLORS="${LS_COLORS:-di=1;34:ln=1;36:ex=1;32:*.tar=1;31:*.gz=1;31}"
 `
 
 // shellCmd starts bash when the image has it, else sh, with shellRC as its start-up file
-// ($ENV for sh). $1 is the container's name for the prompt.
+// ($ENV for sh). $1 is the container's name for the prompt; $2 "sh" asks for sh even when
+// bash is there.
 var shellCmd = []string{"/bin/sh", "-c", `export CD_NAME="$1"
-if command -v bash >/dev/null 2>&1; then exec bash --rcfile /dev/fd/3 -i 3<<'CDRC'
+if [ "$2" != sh ] && command -v bash >/dev/null 2>&1; then exec bash --rcfile /dev/fd/3 -i 3<<'CDRC'
 ` + shellRC + `CDRC
 fi
 ENV=/dev/fd/3 exec sh -i 3<<'CDRC'
@@ -59,11 +60,31 @@ type shell struct {
 	out        chan []byte
 	done       chan struct{}
 	once       sync.Once
+	cleanup    func() // runs once the shell has closed, e.g. to remove a helper container
 	streaming  sync.Mutex
 	attached   atomic.Bool
 }
 
-func (sh *shell) close() { sh.once.Do(func() { close(sh.done); sh.rw.Close() }) }
+func (sh *shell) close() {
+	sh.once.Do(func() {
+		close(sh.done)
+		sh.rw.Close()
+		if sh.cleanup != nil {
+			go sh.cleanup()
+		}
+	})
+}
+
+// shellOpts are the choices the Shells page offers.
+type shellOpts struct {
+	Shell   string // "", "bash" or "sh"
+	User    string // "" for the image's own user
+	Prefix  []string
+	Cleanup func()
+}
+
+// shellUser is a user name or uid[:gid] Docker accepts for exec.
+var shellUser = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$|^[0-9]{1,10}(:[0-9]{1,10})?$`)
 
 type shells struct {
 	mu sync.Mutex
@@ -98,25 +119,40 @@ func (s *Server) apiShellOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Cols, Rows int
-		Name       string
+		Cols, Rows  int
+		Name        string
+		Shell, User string
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	s.openShell(w, r, dc, r.PathValue("id"), req.Name, req.Cols, req.Rows)
+	if req.Shell != "" && req.Shell != "bash" && req.Shell != "sh" {
+		writeError(w, http.StatusBadRequest, errors.New(`shell must be "bash" or "sh"`))
+		return
+	}
+	if req.User != "" && !shellUser.MatchString(req.User) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("%q is not a user name or uid", req.User))
+		return
+	}
+	s.openShell(w, r, dc, r.PathValue("id"), req.Name, req.Cols, req.Rows, shellOpts{Shell: req.Shell, User: req.User})
 }
 
 // openShell starts a shell in a container and answers {id}. The Kubernetes page uses it too: on
 // Colima's docker runtime a pod's containers are Docker containers.
-func (s *Server) openShell(w http.ResponseWriter, r *http.Request, dc *docker.Client, containerID, prompt string, cols, rows int) {
+func (s *Server) openShell(w http.ResponseWriter, r *http.Request, dc *docker.Client, containerID, prompt string, cols, rows int, o shellOpts) {
+	fail := func(status int, err error) {
+		if o.Cleanup != nil {
+			go o.Cleanup()
+		}
+		writeError(w, status, err)
+	}
 	store := s.shellStore()
 	store.mu.Lock()
 	n := len(store.m)
 	store.mu.Unlock()
 	if n >= maxShells {
-		writeError(w, http.StatusTooManyRequests, fmt.Errorf("%d shells are open already; close one first", n))
+		fail(http.StatusTooManyRequests, fmt.Errorf("%d shells are open already; close one first", n))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -125,15 +161,16 @@ func (s *Server) openShell(w http.ResponseWriter, r *http.Request, dc *docker.Cl
 	if !shellName.MatchString(name) {
 		name = ""
 	}
-	execID, err := dc.ExecCreate(ctx, containerID, append(append([]string{}, shellCmd...), name), true)
+	cmd := append(append(append([]string{}, o.Prefix...), shellCmd...), name, o.Shell)
+	execID, err := dc.ExecCreateAs(ctx, containerID, cmd, true, o.User)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		fail(statusFor(err), err)
 		return
 	}
 	// The stream outlives this request: it ends when the page closes it or the shell exits.
 	rw, err := dc.ExecAttach(context.Background(), execID, true)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		fail(statusFor(err), err)
 		return
 	}
 	if cols > 0 && rows > 0 {
@@ -141,7 +178,7 @@ func (s *Server) openShell(w http.ResponseWriter, r *http.Request, dc *docker.Cl
 	}
 	var b [16]byte
 	_, _ = rand.Read(b[:])
-	sh := &shell{id: hex.EncodeToString(b[:]), execID: execID, dc: dc, rw: rw, out: make(chan []byte, 64), done: make(chan struct{})}
+	sh := &shell{id: hex.EncodeToString(b[:]), execID: execID, dc: dc, rw: rw, out: make(chan []byte, 64), done: make(chan struct{}), cleanup: o.Cleanup}
 	go func() {
 		defer close(sh.out)
 		buf := make([]byte, 32<<10)
