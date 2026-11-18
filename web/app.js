@@ -59,11 +59,29 @@ function tagButtons(root = document) {
     if (b.dataset.act !== a) { if (a) b.dataset.act = a; else delete b.dataset.act; }
   }
 }
+// On a phone, wide data tables stack: each row becomes a block of "label: value" lines, with the
+// labels taken from the table's header (CSS in app.css, table.stack).
+function labelTables(root = document) {
+  for (const t of root.querySelectorAll(".table-wrap table:not(.ctable)")) {
+    const heads = t.tHead?.rows[0]?.cells;
+    if (!heads) continue;
+    t.classList.add("stack");
+    const names = [...heads].flatMap((h) => Array(h.colSpan || 1).fill(h.textContent.trim()));
+    for (const tr of t.tBodies[0]?.rows || []) {
+      let i = 0;
+      for (const td of tr.cells) {
+        const n = td.colSpan > 1 ? "" : names[i] || "";
+        if ((td.dataset.label || "") !== n) { if (n) td.dataset.label = n; else delete td.dataset.label; }
+        i += td.colSpan || 1;
+      }
+    }
+  }
+}
 let tagQueued = false;
 new MutationObserver(() => {
   if (tagQueued) return;
   tagQueued = true;
-  requestAnimationFrame(() => { tagQueued = false; tagButtons(); });
+  requestAnimationFrame(() => { tagQueued = false; tagButtons(); labelTables(); });
 }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
 async function api(method, path, body) {
