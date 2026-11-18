@@ -62,7 +62,7 @@ function tagButtons(root = document) {
 // On a phone, wide data tables stack: each row becomes a block of "label: value" lines, with the
 // labels taken from the table's header (CSS in app.css, table.stack).
 function labelTables(root = document) {
-  for (const t of root.querySelectorAll(".table-wrap table:not(.ctable)")) {
+  for (const t of root.querySelectorAll(".table-wrap table:not(.ctable):not(.files-table)")) {
     const heads = t.tHead?.rows[0]?.cells;
     if (!heads) continue;
     t.classList.add("stack");
