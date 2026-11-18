@@ -330,7 +330,8 @@ func (c *Client) Top(ctx context.Context, id string) (*Top, error) {
 
 // Logs streams a container's logs to w as lines of text, demultiplexing stdout and stderr.
 // tty says whether the container has a TTY (its stream is then raw, not multiplexed).
-func (c *Client) Logs(ctx context.Context, id string, tail int, follow, timestamps, tty bool, w func(stream, line string) error) error {
+// since, when not zero, leaves out lines older than that time.
+func (c *Client) Logs(ctx context.Context, id string, tail int, since time.Time, follow, timestamps, tty bool, w func(stream, line string) error) error {
 	if !ValidRef(id) {
 		return fmt.Errorf("invalid container id %q", id)
 	}
@@ -340,6 +341,9 @@ func (c *Client) Logs(ctx context.Context, id string, tail int, follow, timestam
 	}
 	if timestamps {
 		q.Set("timestamps", "1")
+	}
+	if !since.IsZero() {
+		q.Set("since", fmt.Sprint(since.Unix()))
 	}
 	resp, err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/logs", q, nil)
 	if err != nil {

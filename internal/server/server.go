@@ -79,6 +79,7 @@ type Server struct {
 	mux        *http.ServeMux
 	shellOnce  sync.Once
 	shells     *shells
+	details    detailCache // container inspect summaries for the list
 }
 
 // New builds the handler.
