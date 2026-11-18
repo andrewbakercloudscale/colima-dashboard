@@ -135,6 +135,7 @@ button, .btn {
 button:hover { filter: brightness(1.06); }
 button:disabled { opacity: .5; cursor: default; }
 button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+button.ghost:hover:not(:disabled) { background: var(--code); filter: none; }
 button.danger { background: var(--badge-bad-bg); border-color: var(--badge-bad-bg); color: var(--badge-bad-fg); }
 button.ghost.danger { background: transparent; color: var(--bad); border-color: var(--line); }
 button.mini { padding: 3px 8px; font-size: 12px; }
@@ -699,3 +700,8 @@ td.limits { white-space: nowrap; line-height: 1.5; }
   .viz-head { background: #fff; border-bottom: 1px solid #bbb; }
   a { color: #000; }
 }
+
+/* Header buttons on the output panel and drawers: same compact look as the row buttons */
+button.hbtn { background: var(--panel); font-weight: 500; min-width: 64px; }
+button.hbtn:hover:not(:disabled) { background: var(--code); }
+.jobpanel header .pill { font-size: 11.5px; }
