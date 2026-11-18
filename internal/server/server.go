@@ -79,6 +79,8 @@ type Server struct {
 	mux        *http.ServeMux
 	shellOnce  sync.Once
 	shells     *shells
+	fwdOnce    sync.Once
+	fwds       *forwards
 }
 
 // New builds the handler.
