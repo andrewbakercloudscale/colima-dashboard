@@ -54,6 +54,8 @@ type adviceCache struct {
 	// profile/id, valued with the container's FinishedAt then: the kernel's OOMKilled flag
 	// stays set until the container starts again, and the advice should not repeat itself.
 	raised map[string]string
+	// spots holds each profile's last direct VM reading, the baseline for its CPU average.
+	spots map[string]*metrics.Spot
 }
 
 func (ac *adviceCache) get(p string, maxAge time.Duration) (adviceResponse, bool) {
@@ -162,6 +164,8 @@ func (s *Server) computeAdvice(ctx context.Context, p string) adviceResponse {
 	use := usageFromSamples(samples, st.CPU, now)
 	if use.vm != nil {
 		in.VM.Sampled, in.VM.CPUPct, in.VM.MemUsed, in.VM.MemTotal, in.VM.Window = true, use.vm.cpuPct, use.vm.memUsed, use.vm.memTotal, use.vm.window
+	} else if v := s.vmSpotUse(ctx, p, now); v != nil {
+		in.VM.Sampled, in.VM.CPUPct, in.VM.MemUsed, in.VM.MemTotal, in.VM.Window = true, v.cpuPct, v.memUsed, v.memTotal, v.window
 	}
 	snap := map[string]*advice.Usage{}
 	if !use.fresh {
@@ -206,6 +210,47 @@ func (s *Server) computeAdvice(ctx context.Context, p string) adviceResponse {
 	}
 	res.Issues = advice.Analyse(in)
 	return res
+}
+
+// spotKeep is how long an earlier VM reading stays the baseline for the CPU average.
+const spotKeep = 15 * time.Minute
+
+// vmSpotUse reads the VM's memory and CPU counters directly when the Monitor has no recent
+// samples, so VM warnings show without the Monitor open. Memory is the reading now; CPU is the
+// average since an earlier reading a minute or more ago (none on the first call).
+func (s *Server) vmSpotUse(ctx context.Context, p string, now time.Time) *vmUse {
+	if s.opt.Colima == nil {
+		return nil
+	}
+	rctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	cur, err := metrics.ReadSpot(rctx, s.opt.Colima.Bin, p)
+	if err != nil || cur.MemTotal == 0 {
+		return nil
+	}
+	v := &vmUse{memUsed: int64(cur.MemUsed()), memTotal: int64(cur.MemTotal)}
+	s.advice.mu.Lock()
+	defer s.advice.mu.Unlock()
+	if s.advice.spots == nil {
+		s.advice.spots = map[string]*metrics.Spot{}
+	}
+	prev := s.advice.spots[p]
+	age := now.Sub(func() time.Time {
+		if prev == nil {
+			return now
+		}
+		return prev.T
+	}())
+	switch {
+	case prev == nil || age > spotKeep:
+		s.advice.spots[p] = cur
+	case age >= advice.MinWindow:
+		if pct, ok := cur.CPUSince(prev); ok {
+			v.cpuPct, v.window = pct, age
+		}
+		s.advice.spots[p] = cur
+	}
+	return v
 }
 
 type vmUse struct {

@@ -54,7 +54,7 @@ func (s *Server) apiFix(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		for _, c := range s.diagnose(ctx, body.Profile) {
-			if c.ID == body.ID && c.Action == "terminal" && c.Fix != "" {
+			if c.ID == body.ID && (c.Action == "terminal" || c.Action == "install") && c.Fix != "" {
 				cmd = c.Fix
 				break
 			}

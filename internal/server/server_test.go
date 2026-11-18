@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -100,6 +101,17 @@ func TestTokenSwapsForCookie(t *testing.T) {
 	c := w.Result().Cookies()
 	if len(c) != 1 || c[0].Value != token || !c[0].HttpOnly || c[0].SameSite != http.SameSiteStrictMode {
 		t.Fatalf("cookie not HttpOnly SameSite=Strict: %+v", c)
+	}
+	if c[0].Name != cookieName(s.opt.Port) || !strings.HasSuffix(c[0].Name, "_"+strconv.Itoa(s.opt.Port)) {
+		t.Fatalf("cookie should be named for the port: %q", c[0].Name)
+	}
+	// Another copy on another port left its own cookie with a different token: still signed in.
+	w = do(s, "GET", "/api/overview", func(r *http.Request) {
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: strings.Repeat("0", len(token))})
+		r.AddCookie(&http.Cookie{Name: cookieName(s.opt.Port), Value: token})
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("port cookie beside a stale shared one: got %d", w.Code)
 	}
 	if w := do(s, "GET", "/?token=nope", nil); w.Code != http.StatusUnauthorized || w.Body.String() != "LOCKED" {
 		t.Fatalf("bad token: %d %q", w.Code, w.Body.String())

@@ -25,10 +25,17 @@ type Check struct {
 	Fix    string `json:"fix,omitempty"` // the command that fixes it
 	// Action is how the page's button runs Fix: "terminal" opens Terminal with it (see
 	// terminal.go), "start", "restart" and "certs" use the page's own progress view (for
-	// "certs" Fix describes what happens rather than being a command).
+	// "certs" Fix describes what happens rather than being a command), "install" installs the
+	// Homebrew formula named in Fix ("brew install X") through POST /api/install.
 	Action string `json:"action,omitempty"`
 	// Confirm, when set, is what the page asks before a fix that deletes or edits something.
 	Confirm string `json:"confirm,omitempty"`
+}
+
+// inPlace marks a check's fix as a Homebrew install the page runs itself.
+func inPlace(c Check, formula string) Check {
+	c.Fix, c.Action = "brew install "+formula, "install"
+	return c
 }
 
 // inTerminal marks a check's fix as one the page opens in Terminal.
@@ -100,7 +107,7 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 		cur, err := kubeCurrentContext(ctx)
 		switch {
 		case err != nil:
-			add(inTerminal(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn", Detail: err.Error()}, "brew install kubectl"))
+			add(inPlace(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn", Detail: err.Error()}, "kubernetes-cli"))
 		case cur != want:
 			add(inTerminal(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "warn",
 				Detail: fmt.Sprintf("current context is %q", cur)}, "kubectl config use-context "+want))
@@ -125,8 +132,16 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 	var out []Check
 	dockerBin, err := exec.LookPath("docker")
 	if err != nil {
-		return append(out, inTerminal(Check{ID: "dockercli", Title: "docker CLI is installed", State: "fail",
-			Detail: "colima runs the engine; the docker command comes separately"}, "brew install docker"))
+		return append(out, inPlace(Check{ID: "dockercli", Title: "docker CLI is installed", State: "fail",
+			Detail: "colima runs the engine; the docker command comes separately"}, "docker"))
+	}
+	// Without kubectl colima reports Kubernetes as off even when k3s runs, and will not start a
+	// k3s profile, so check it whether or not this profile uses Kubernetes.
+	if p, err := exec.LookPath("kubectl"); err != nil {
+		out = append(out, inPlace(Check{ID: "kubectl", Title: "kubectl is installed", State: "warn",
+			Detail: "without it colima reports Kubernetes as off and will not start a k3s profile"}, "kubernetes-cli"))
+	} else {
+		out = append(out, Check{ID: "kubectl", Title: "kubectl is installed", State: "pass", Detail: p})
 	}
 	out = append(out, Check{ID: "dockercli", Title: "docker CLI is installed", State: "pass", Detail: dockerBin})
 
@@ -161,7 +176,7 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 		if p, err := exec.LookPath(helper); err != nil {
 			out = append(out, Check{ID: "creds", Title: "Docker credential helper exists", State: "fail",
 				Detail: fmt.Sprintf("~/.docker/config.json names credsStore %q but %s is not on PATH, so pulls fail", cfg.CredsStore, helper),
-				Fix:    "brew install docker-credential-helper", Action: "terminal"})
+				Fix:    "brew install docker-credential-helper", Action: "install"})
 		} else {
 			out = append(out, Check{ID: "creds", Title: "Docker credential helper exists", State: "pass", Detail: p})
 		}
@@ -169,7 +184,7 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 	for _, plugin := range []struct{ name, brew string }{{"buildx", "docker-buildx"}, {"compose", "docker-compose"}} {
 		if _, err := runText(ctx, dockerBin, plugin.name, "version"); err != nil {
 			out = append(out, Check{ID: plugin.name, Title: "docker " + plugin.name + " plugin", State: "warn",
-				Detail: "not installed (Rancher Desktop bundles it; Colima does not)", Fix: "brew install " + plugin.brew, Action: "terminal"})
+				Detail: "not installed (Rancher Desktop bundles it; Colima does not)", Fix: "brew install " + plugin.brew, Action: "install"})
 		} else {
 			out = append(out, Check{ID: plugin.name, Title: "docker " + plugin.name + " plugin", State: "pass", Detail: "installed"})
 		}

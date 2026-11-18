@@ -978,7 +978,7 @@ async function clusterView() {
   const k = k8s.k;
   const ctx = el("section.card.info-card.k8s-card2", k8sHead("t6", "term", "kubectl on your Mac", null));
   if (k.currentContextError) {
-    ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config. This page does not need it: it runs kubectl inside the VM."), fixRow({ id: "kubectx", title: "kubectl", fix: "brew install kubectl", action: "terminal" }));
+    ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config. This page does not need it: it runs kubectl inside the VM."), fixRow({ id: "kubectl", title: "kubectl", fix: "brew install kubernetes-cli", action: "install" }));
   } else if (k.currentContext !== k.context) {
     ctx.append(el("p", "kubectl points at ", el("code", k.currentContext), ", not this profile."), fixRow({ id: "kubectx", title: "kubectl context", fix: `kubectl config use-context ${k.context}`, action: "terminal" }));
   } else {

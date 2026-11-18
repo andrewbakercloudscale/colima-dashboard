@@ -22,6 +22,7 @@ func (s *Server) updateRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/updates/install", s.auth(s.apiUpdatesInstall))
 	m.HandleFunc("POST /api/updates/colima", s.auth(s.apiUpdateColima))
 	m.HandleFunc("POST /api/updates/brew", s.auth(s.apiUpdateBrew))
+	m.HandleFunc("POST /api/install", s.auth(s.apiInstall))
 	m.HandleFunc("POST /api/profiles/{p}/runtime-update", s.auth(s.apiUpdateRuntime))
 }
 
@@ -102,6 +103,47 @@ func (s *Server) apiUpdateBrew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.brewUpgrade(w, body.Formulae)
+}
+
+// installable is every formula a Diagnostics fix may install in place.
+var installable = map[string]bool{
+	"kubernetes-cli": true, "docker": true, "docker-buildx": true,
+	"docker-compose": true, "docker-credential-helper": true,
+}
+
+// apiInstall runs brew install for one formula a Diagnostics check found missing.
+func (s *Server) apiInstall(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Formula string `json:"formula"`
+	}
+	if err := readJSON(r, &body); err != nil || !installable[body.Formula] {
+		writeError(w, http.StatusBadRequest, errors.New("not a tool the dashboard installs"))
+		return
+	}
+	brew, err := exec.LookPath("brew")
+	if err != nil {
+		writeError(w, http.StatusConflict, errors.New("Homebrew is not installed"))
+		return
+	}
+	const key = "_upgrade"
+	if err := s.opt.Colima.Claim(key, "install"); err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	job := s.jobs.Start("brew install "+body.Formula, "", func(j *Job) error {
+		defer s.opt.Colima.Release(key)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, brew, "install", body.Formula)
+		cmd.Stdout, cmd.Stderr = j, j
+		cmd.Env = append(cmd.Environ(), "HOMEBREW_NO_AUTO_UPDATE=1", "HOMEBREW_NO_ENV_HINTS=1")
+		if err := cmd.Run(); err != nil {
+			return err
+		}
+		j.Line("Done.")
+		return nil
+	})
+	writeJSON(w, http.StatusAccepted, job.snapshot())
 }
 
 func (s *Server) brewUpgrade(w http.ResponseWriter, formulae []string) {
