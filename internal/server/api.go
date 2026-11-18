@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
@@ -62,6 +61,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/stats", s.auth(s.apiStats))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/top", s.auth(s.apiTop))
 	m.HandleFunc("GET /api/profiles/{p}/containers/{id}/logs", s.auth(s.apiLogs))
+	m.HandleFunc("POST /api/profiles/{p}/containers/{id}/limits", s.auth(s.apiLimits))
+	m.HandleFunc("GET /api/profiles/{p}/projects/{project}/logs", s.auth(s.apiProjectLogs))
 	m.HandleFunc("POST /api/profiles/{p}/containers/{id}/{action}", s.auth(s.apiContainerAction))
 	m.HandleFunc("DELETE /api/profiles/{p}/containers/{id}", s.auth(s.apiRemoveContainer))
 	m.HandleFunc("POST /api/profiles/{p}/containers/{id}/shell", s.auth(s.apiShellOpen))
@@ -251,22 +252,6 @@ func (s *Server) apiDiskUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, du.Summary)
 }
 
-func (s *Server) apiContainers(w http.ResponseWriter, r *http.Request) {
-	dc := s.client(w, r)
-	if dc == nil {
-		return
-	}
-	cs, err := dc.Containers(r.Context())
-	if err != nil {
-		writeError(w, statusFor(err), err)
-		return
-	}
-	if cs == nil {
-		cs = []docker.Container{}
-	}
-	writeJSON(w, http.StatusOK, cs)
-}
-
 func (s *Server) apiInspect(w http.ResponseWriter, r *http.Request) {
 	dc := s.client(w, r)
 	if dc == nil {
@@ -304,45 +289,6 @@ func (s *Server) apiStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
-}
-
-// apiLogs streams container logs as SSE "line" events: {s: stream, t: text}.
-func (s *Server) apiLogs(w http.ResponseWriter, r *http.Request) {
-	dc := s.client(w, r)
-	if dc == nil {
-		return
-	}
-	id := r.PathValue("id")
-	q := r.URL.Query()
-	tail, err := strconv.Atoi(q.Get("tail"))
-	if err != nil || tail <= 0 || tail > 10000 {
-		tail = 500
-	}
-	doc, err := dc.Inspect(r.Context(), id)
-	if err != nil {
-		writeError(w, statusFor(err), err)
-		return
-	}
-	tty := false
-	if cfg, ok := doc["Config"].(map[string]any); ok {
-		tty, _ = cfg["Tty"].(bool)
-	}
-	ev, ok := newSSE(w)
-	if !ok {
-		return
-	}
-	var mu sync.Mutex
-	err = dc.Logs(r.Context(), id, tail, q.Get("follow") == "1", q.Get("timestamps") == "1", tty,
-		func(stream, line string) error {
-			mu.Lock()
-			defer mu.Unlock()
-			return ev.send("line", map[string]string{"s": stream, "t": line})
-		})
-	if err != nil && r.Context().Err() == nil {
-		_ = ev.send("failed", err.Error())
-		return
-	}
-	_ = ev.send("done", true)
 }
 
 func (s *Server) apiContainerAction(w http.ResponseWriter, r *http.Request) {

@@ -486,13 +486,15 @@ async function renderContainers(main) {
       const cs = groups.get(g);
       if (g) {
         const anyRunning = cs.some((c) => c.State === "running");
-        tbody.append(el("tr.group", el("td", { colspan: 5 }, `Compose: ${g}`, el("span.muted.small", ` · ${cs.length} ${cs.length === 1 ? "container" : "containers"}`)),
-          el("td.actions", el("button.ghost.mini", { type: "button", onclick: () => groupAction(cs, anyRunning ? "stop" : "start") }, anyRunning ? "Stop all" : "Start all"))));
+        tbody.append(el("tr.group", el("td", { colspan: 6 }, `Compose: ${g}`, el("span.muted.small", ` · ${cs.length} ${cs.length === 1 ? "container" : "containers"}`)),
+          el("td.actions",
+            el("button.ghost.mini", { type: "button", onclick: () => showProjectLogs(g), title: "All of this project's logs, interleaved by time" }, "Logs"),
+            el("button.ghost.mini", { type: "button", onclick: () => groupAction(cs, anyRunning ? "stop" : "start") }, anyRunning ? "Stop all" : "Start all"))));
       }
       for (const c of cs) tbody.append(containerRow(c));
     }
     body.replaceChildren(el("table.ctable",
-      el("thead", el("tr", ["Name", "Image", "State", "Ports", "Created", ""].map((h) => el("th", h)))), tbody));
+      el("thead", el("tr", ["Name", "Image", "State", "Limits", "Ports", "Created", ""].map((h) => el("th", h)))), tbody));
   };
   const load = async () => {
     try { list = await api("GET", `${P()}/containers`); draw(); } catch (e) { body.replaceChildren(el("div.notice.bad", e.message)); }
@@ -544,7 +546,8 @@ function containerRow(c) {
     el("td", el("strong", name), el("div.muted.small.mono", short(c.Id))),
     // an image whose tag moved on shows as a digest: keep it short, full value on hover
     el("td.mono.small.trunc", { title: c.Image }, c.Image.startsWith("sha256:") ? c.Image.slice(0, 19) + "…" : c.Image),
-    el("td", el(`span.pill.${c.State}`, c.State), el("div.muted.small.nowrap", c.Status)),
+    el("td", el(`span.pill.${c.State}`, c.State), el("div.muted.small.nowrap", c.Status), containerFlags(c)),
+    limitsCell(c),
     el("td", ports.length ? ports : el("span.muted", "–")),
     el("td.small", ago(c.Created)),
     el("td.actions.wrap",
@@ -557,6 +560,7 @@ function containerRow(c) {
       running ? el("button.ghost.mini", { type: "button", onclick: () => showFiles(c.Id, name) }, "Files") : null,
       el("button.ghost.mini", { type: "button", onclick: () => showLogs(c.Id, name) }, "Logs"),
       el("button.ghost.mini", { type: "button", onclick: () => showInspect(c.Id, name) }, "Inspect"),
+      el("button.ghost.mini", { type: "button", onclick: () => showLimits(c, name) }, "Limits"),
       el("button.ghost.mini.danger", { type: "button", onclick: () => removeContainer(c, name) }, "Remove")));
 }
 
@@ -573,46 +577,7 @@ async function removeContainer(c, name) {
   try { await api("DELETE", `${P()}/containers/${encodeURIComponent(c.Id)}?force=${running ? 1 : 0}`); toast(`Removed ${name}`); render(); } catch (e) { toast(e.message, true); }
 }
 
-function showLogs(id, name) {
-  const log = el("pre.log");
-  const search = el("input", { type: "search", placeholder: "Highlight", "aria-label": "Highlight text in logs" });
-  const follow = el("input", { type: "checkbox", checked: true });
-  const stamps = el("input", { type: "checkbox" });
-  const lines = [];
-  const paint = () => {
-    const q = search.value;
-    log.replaceChildren(...lines.map((l) => lineNode(l, q)));
-    log.scrollTop = log.scrollHeight;
-  };
-  const start = () => {
-    if (state.logSource) state.logSource.close();
-    lines.length = 0;
-    log.replaceChildren();
-    const qs = `tail=500&follow=${follow.checked ? 1 : 0}&timestamps=${stamps.checked ? 1 : 0}`;
-    const src = new EventSource(`${P()}/containers/${encodeURIComponent(id)}/logs?${qs}`);
-    state.logSource = src;
-    src.addEventListener("line", (e) => {
-      const l = JSON.parse(e.data);
-      lines.push(l);
-      if (lines.length > 5000) lines.shift();
-      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
-      log.append(lineNode(l, search.value));
-      if (log.childNodes.length > 5000) log.firstChild.remove();
-      if (atBottom) log.scrollTop = log.scrollHeight;
-    });
-    src.addEventListener("done", () => src.close());
-    src.addEventListener("failed", (e) => { src.close(); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
-  };
-  search.addEventListener("input", paint);
-  follow.addEventListener("change", start);
-  stamps.addEventListener("change", start);
-  openDrawer(`Logs: ${name}`,
-    el("div.toolbar", search, el("label.check", follow, "Follow"), el("label.check", stamps, "Timestamps"),
-      el("button.ghost.mini", { type: "button", onclick: () => download(`${name}.log`, lines.map((l) => l.t).join("\n")) }, "Download"),
-      linkBtn("containers", { name, open: "logs" })),
-    log);
-  start();
-}
+// showLogs and showProjectLogs live in containers.js.
 
 // ---------- shell and files inside a container ----------
 

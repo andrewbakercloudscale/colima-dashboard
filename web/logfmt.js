@@ -132,30 +132,64 @@
   }
   function tryJSON(s) { try { const v = JSON.parse(s); return v && typeof v === "object" ? v : null; } catch { return null; } }
 
-  // Wraps every case-insensitive match of q in text nodes with <mark>.
+  // Wraps every case-insensitive match of q (a string), or every match of q (a RegExp), in
+  // <mark>. Matches are found in the line's whole text, so one may span coloured tokens.
   function mark(root, q) {
-    const needle = q.toLowerCase();
+    const re = q instanceof RegExp
+      ? new RegExp(q.source, q.flags.includes("g") ? q.flags : q.flags + "g")
+      : new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
+    const text = nodes.map((n) => n.nodeValue).join("");
+    const ranges = [];
+    let m;
+    while ((m = re.exec(text))) {
+      if (!m[0]) { re.lastIndex++; continue; }
+      ranges.push([m.index, m.index + m[0].length]);
+    }
+    if (!ranges.length) return;
+    let off = 0, r = 0;
     for (const n of nodes) {
-      const t = n.nodeValue, lower = t.toLowerCase();
-      let i = lower.indexOf(needle);
-      if (i < 0) continue;
+      const t = n.nodeValue, start = off, end = off + t.length;
+      off = end;
+      while (r < ranges.length && ranges[r][1] <= start) r++;
+      if (r >= ranges.length || ranges[r][0] >= end) continue;
       const frag = document.createDocumentFragment();
-      let last = 0;
-      while (i >= 0) {
-        frag.append(t.slice(last, i));
+      let pos = start;
+      for (let i = r; i < ranges.length && ranges[i][0] < end; i++) {
+        const a = Math.max(ranges[i][0], start), b = Math.min(ranges[i][1], end);
+        if (a > pos) frag.append(t.slice(pos - start, a - start));
         const mk = document.createElement("mark");
-        mk.textContent = t.slice(i, i + q.length);
+        mk.textContent = t.slice(a - start, b - start);
         frag.append(mk);
-        last = i + q.length;
-        i = lower.indexOf(needle, last);
+        pos = b;
       }
-      frag.append(t.slice(last));
+      if (pos < end) frag.append(t.slice(pos - start));
       n.replaceWith(frag);
     }
   }
 
-  window.logfmt = { line };
+  // level guesses how serious a line is: "error", "warn" or null. An explicit level field
+  // (logfmt level=, JSON "level") wins; otherwise level words, exceptions, tracebacks and
+  // HTTP 5xx answers in access logs count. "err=<nil>" and the like do not.
+  const EXPLICIT = /(?:^|\s)(?:level|lvl|severity)=["']?(\w+)|"(?:level|lvl|severity)"\s*:\s*"(\w+)"/i;
+  const ERR_WORDS = /\b(?:error|err|fatal|panic|critical|crit|emerg)\b|exception\b|\btraceback\b|"\s5\d\d\s|\bstatus[=:]\s*"?5\d\d\b/i;
+  const WARN_WORDS = /\bwarn(?:ing)?\b/i;
+  const NIL_ERR = /\berr(?:or)?[=:]\s*(?:"?<nil>"?|null|nil|""|none)/gi;
+  function level(text) {
+    const t = String(text || "").replace(/\x1b\[[0-9;]*m/g, "");
+    const m = EXPLICIT.exec(t);
+    if (m) {
+      const l = levelOf(m[1] || m[2]);
+      if (l === "error" || l === "warn") return l;
+      if (l) return null;
+    }
+    const u = t.replace(NIL_ERR, "");
+    if (ERR_WORDS.test(u)) return "error";
+    if (WARN_WORDS.test(u)) return "warn";
+    return null;
+  }
+
+  window.logfmt = { line, level };
 })();
