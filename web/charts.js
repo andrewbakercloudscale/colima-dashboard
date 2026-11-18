@@ -19,6 +19,36 @@ function svg(tag, attrs, ...children) {
 const SERIES = ["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6", "--series-7", "--series-8"];
 const seriesColor = (i) => (i < 0 ? "var(--series-other)" : `var(${SERIES[i % SERIES.length]})`);
 
+// Motion: a chart animates in when it first appears (bars grow, lines wipe in, rings sweep).
+// Timed refreshes (Monitor every few seconds) call quiet() first so redraws stay still, and
+// nothing moves for people who ask for reduced motion.
+const motion = { quietUntil: 0 };
+const reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+function quiet(ms = 3000) { motion.quietUntil = Date.now() + ms; }
+function animate(node) {
+  if (node && Date.now() >= motion.quietUntil && !reduceMotion.matches) node.classList.add("anim");
+  return node;
+}
+// stagger sets the delay slot for the i-th piece of an animated chart.
+function stagger(node, i) { node.style.setProperty("--i", String(Math.min(i, 40))); return node; }
+
+// Gradients give areas and bars depth. Each chart has its own <defs>; ids are unique per page.
+let gradSeq = 0;
+function gradient(root, color, from = 1, to = 0.15, horizontal = false) {
+  let defs = root.querySelector(":scope > defs");
+  if (!defs) { defs = svg("defs"); root.prepend(defs); }
+  const id = `cg${++gradSeq}`;
+  const g = svg("linearGradient", horizontal ? { id, x1: 0, y1: 0, x2: 1, y2: 0 } : { id, x1: 0, y1: 0, x2: 0, y2: 1 });
+  for (const [off, op] of [[0, from], [1, to]]) {
+    const st = svg("stop", { offset: off });
+    st.style.setProperty("stop-color", color);
+    st.style.setProperty("stop-opacity", String(op));
+    g.append(st);
+  }
+  defs.append(g);
+  return `url(#${id})`;
+}
+
 // ring: a gauge from 0..100 with the value in the middle.
 function ringGauge(pct, size = 116) {
   const r = size / 2 - 9;
@@ -30,9 +60,9 @@ function ringGauge(pct, size = 116) {
     class: "ring-arc",
   });
   arc.style.setProperty("stroke", v >= 85 ? "var(--ring-hot)" : v >= 60 ? "var(--ring-warm)" : "var(--ring-ok)");
-  return svg("svg", { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: "ring", "aria-hidden": "true" },
+  return animate(svg("svg", { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: "ring", "aria-hidden": "true" },
     svg("circle", { cx: size / 2, cy: size / 2, r, fill: "none", "stroke-width": 10, class: "ring-track" }),
-    arc);
+    arc));
 }
 
 // donut: segments [{label, value, color}] with a 2px surface gap between them.
@@ -49,16 +79,17 @@ function donut(segments, size = 168, center) {
       if (len <= 0) continue;
       const gap = segments.length > 1 ? Math.min(2, len / 2) : 0;
       const seg = svg("circle", {
-        cx: size / 2, cy: size / 2, r, fill: "none", "stroke-width": 22,
+        cx: size / 2, cy: size / 2, r, fill: "none", "stroke-width": 22, class: "seg",
         "stroke-dasharray": `${Math.max(len - gap, 0.5)} ${c}`, "stroke-dashoffset": -off,
       });
+      stagger(seg, g.children.length - 1);
       seg.style.setProperty("stroke", s.color);
       seg.append(svg("title", {}, document.createTextNode(`${s.label}: ${s.text || s.value}`)));
       g.append(seg);
       off += len;
     }
   }
-  const node = svg("svg", { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: "donut", role: "img" }, g);
+  const node = animate(svg("svg", { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: "donut", role: "img" }, g));
   if (center) {
     node.append(svg("text", { x: size / 2, y: size / 2 + 2, "text-anchor": "middle", class: "donut-big" }, document.createTextNode(center[0])));
     node.append(svg("text", { x: size / 2, y: size / 2 + 22, "text-anchor": "middle", class: "donut-small" }, document.createTextNode(center[1])));
@@ -159,8 +190,8 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
     }
     if (area && !s.dash && (stacked || s.fill || wash)) {
       // stacked charts are solid bands; line charts get a soft wash under the line
-      const a = svg("path", { d: area, class: stacked || s.fill ? "area" : "area soft" });
-      a.style.setProperty("fill", color);
+      const a = svg("path", { d: area, class: stacked || s.fill ? "area" : "area wash" });
+      a.style.setProperty("fill", stacked || s.fill ? gradient(root, color, 0.95, 0.6) : gradient(root, color, 0.38, 0.02));
       root.append(a);
     }
     const p = svg("path", { d: line, class: s.dash ? "line dash" : "line" });
@@ -178,6 +209,7 @@ function timeChart({ times, series, domain, stacked = false, fmt = (v) => v.toFi
   const cross = svg("line", { y1: 0, y2: H, class: "cross", visibility: "hidden" });
   const hit = svg("rect", { x: 0, y: 0, width: W, height: H, class: "hit" });
   root.append(cross, hit);
+  animate(root);
 
   const xAxis = document.createElement("div");
   xAxis.className = "tc-x";
@@ -254,11 +286,13 @@ function sparkline(values, color, max) {
   const step = W / (vals.length - 1);
   let d = "";
   vals.forEach((v, i) => { d += `${i ? "L" : "M"}${(i * step).toFixed(1)},${(H - 2 - (Math.min(v, m) / m) * (H - 4)).toFixed(1)}`; });
-  const area = svg("path", { d: `${d}L${W},${H}L0,${H}Z`, class: "area" });
-  area.style.setProperty("fill", color);
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "spark", preserveAspectRatio: "none", "aria-hidden": "true" });
+  const area = svg("path", { d: `${d}L${W},${H}L0,${H}Z`, class: "area grad" });
+  area.style.setProperty("fill", gradient(root, color, 0.55, 0.03));
   const line = svg("path", { d, class: "line" });
   line.style.setProperty("stroke", color);
-  return svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "spark", preserveAspectRatio: "none", "aria-hidden": "true" }, area, line);
+  root.append(area, line);
+  return animate(root);
 }
 
 // runBars: one bar per run or build, height its duration, colour how it ended. points:
@@ -272,12 +306,12 @@ function runBars(points, fmt) {
   const bw = Math.max(2, (W - gap * (points.length - 1)) / Math.max(points.length, 12));
   points.forEach((p, i) => {
     const h = Math.max(2, ((p.seconds || 0) / max) * (H - 2));
-    const r = svg("rect", { x: i * (bw + gap), y: H - h, width: bw, height: h, rx: 1 });
+    const r = stagger(svg("rect", { x: i * (bw + gap), y: H - h, width: bw, height: h, rx: 1.5 }), i);
     r.style.setProperty("fill", OUTCOME_COLORS[p.outcome] || OUTCOME_COLORS.stopped);
     r.append(svg("title", {}, document.createTextNode(`${new Date(p.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}: ${p.outcome}, ${fmt(p.seconds || 0)}`)));
     root.append(r);
   });
-  return root;
+  return animate(root);
 }
 
 // barChart: one (stacked) bar per bucket of time, in the time chart's frame: HTML axis labels,
@@ -312,21 +346,23 @@ function barChart({ times, width, series, fmt = (v) => String(Math.round(v)), he
   }
   const band = svg("rect", { x: 0, y: 0, width: slot, height: H, class: "band", visibility: "hidden" });
   root.append(band);
+  const fills = series.map((s) => gradient(root, s.color, 1, 0.72));
   for (let i = 0; i < n; i++) {
     let acc = 0;
     const x0 = i * slot + (slot - bw) / 2;
-    series.forEach((s) => {
+    series.forEach((s, k) => {
       const v = s.values[i] || 0;
       if (v <= 0) return;
       const top = y(acc + v), bottom = y(acc);
-      const r = svg("rect", { x: x0.toFixed(2), y: top.toFixed(2), width: bw.toFixed(2), height: Math.max(0.5, bottom - top).toFixed(2), class: "bar" });
-      r.style.setProperty("fill", s.color);
+      const r = stagger(svg("rect", { x: x0.toFixed(2), y: top.toFixed(2), width: bw.toFixed(2), height: Math.max(0.5, bottom - top).toFixed(2), class: "bar" }), i);
+      r.style.setProperty("fill", fills[k]);
       root.append(r);
       acc += v;
     });
   }
   const hit = svg("rect", { x: 0, y: 0, width: W, height: H, class: "hit" });
   root.append(hit);
+  animate(root);
   const daily = width >= 20 * 3600e3;
   const label = (t) => daily ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short" }) : clock(t);
   const xAxis = document.createElement("div");
@@ -415,17 +451,20 @@ function hbars(rows, max) {
       const fill = document.createElement("span");
       fill.className = "hb-fill";
       fill.style.setProperty("width", `${(p.value / m) * 100}%`);
-      fill.style.setProperty("background", p.color || "var(--series-1)");
+      const c = p.color || "var(--series-1)";
+      fill.style.setProperty("--c", c);
+      fill.style.setProperty("background", `linear-gradient(90deg, color-mix(in srgb, ${c} 55%, var(--panel)), ${c})`);
       if (p.name) fill.title = `${p.name}: ${p.value}`;
       track.append(fill);
     }
     const val = document.createElement("span");
     val.className = "hb-val";
     val.textContent = r.text ?? String(total(r));
+    stagger(row, box.children.length);
     row.append(lab, track, val);
     box.append(row);
   }
-  return box;
+  return animate(box);
 }
 
-window.Charts = { ringGauge, donut, timeChart, sparkline, legend, seriesColor, niceMax, runBars, OUTCOME_COLORS, barChart, hbars };
+window.Charts = { ringGauge, donut, timeChart, sparkline, legend, seriesColor, niceMax, runBars, OUTCOME_COLORS, barChart, hbars, animate, stagger, quiet };

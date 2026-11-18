@@ -426,9 +426,19 @@ $("#profile").addEventListener("change", (e) => {
 
 window.addEventListener("hashchange", () => { if (!$("#drawer").hidden) closeDrawer(); render(); });
 
+// Animate a block only the first time it shows on the page, not on every refresh.
+function firstShow(sel, node) {
+  return $("#main").querySelector(sel) ? node : Charts.animate(node);
+}
+
 function setTimer(fn, ms) {
   clearInterval(state.timer);
-  state.timer = setInterval(() => { if (!document.hidden && $("#modal").hidden) fn(); }, ms);
+  // A timed refresh redraws charts that are already on screen: keep them still.
+  state.timer = setInterval(() => {
+    if (document.hidden || !$("#modal").hidden) return;
+    if ($("#main").querySelector("svg.chart, svg.ring, svg.donut, svg.spark, .hbars")) Charts.quiet();
+    fn();
+  }, ms);
 }
 
 function notRunningCard() {
@@ -449,6 +459,7 @@ async function render() {
   state.route = { page: state.tab, params: Object.fromEntries(new URLSearchParams(qs || "")) };
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("active", a.dataset.tab === state.tab);
   clearInterval(state.timer);
+  Charts.quiet(0); // a new page animates its charts in
   const main = $("#main");
   try {
     await tabs[state.tab](main);
@@ -582,11 +593,11 @@ async function renderGeneral(main) {
     const total = rows.reduce((a, r) => a + r.size, 0);
     const reclaim = rows.reduce((a, r) => a + r.reclaimable, 0);
     disk.replaceChildren(diskHead(),
-      el("div.bars", rows.map((r, i) => {
-        const fill = el(`div.fill.f${i % 8 + 1}`);
+      firstShow(".bars", el("div.bars", rows.map((r, i) => {
+        const fill = Charts.stagger(el(`div.fill.f${i % 8 + 1}`), i);
         fill.style.width = `${(r.size / max) * 100}%`;
         return el("div.bar", el("span", `${r.type} (${r.count})`), el("div.track", fill), el("span.mono", bytes(r.size)));
-      })),
+      }))),
       el("p.small.muted", `${bytes(total)} in use, ${bytes(reclaim)} reclaimable by pruning.`));
   }).catch((e) => disk.replaceChildren(diskHead(), el("p.muted", e.message)));
 }
@@ -2065,13 +2076,13 @@ function macCard() {
     el("summary",
       el("span.ws-title", el("span.ws-icon", tone === "ok" ? "✓" : "🐢"), m.ready && m.windowSec >= 240 ? "Why is it slow? Last 5 min" : `Why is it slow? Last ${m.ready ? mins : 5} min`),
       el("span.ws-head", head)),
-    m.ready ? el("div.ws-list", m.apps.map((a) => {
-      const bar = el("span.ws-fill"); bar.style.width = `${(a.cpu / max) * 100}%`;
+    m.ready ? firstShow(".ws-list", el("div.ws-list", m.apps.map((a, i) => {
+      const bar = Charts.stagger(el("span.ws-fill"), i); bar.style.width = `${(a.cpu / max) * 100}%`;
       return el(`div.ws-row${a.vm ? ".vm" : ""}`,
         el("div.ws-name", el("strong", a.name), a.vm ? el("span.pill.running", "Colima VM") : null,
           el("span.ws-detail", `${a.processes} process${a.processes === 1 ? "" : "es"}: ${a.commands.join(", ")}`)),
         el("span.ws-bar", bar), el("span.ws-pct", pct(a.cpu)));
-    })) : null,
+    }))) : null,
     m.ready && m.spawnPerSec >= 30 ? el("p.ws-tip", "Lots of short-lived processes: usually a script or build in a loop, or security software checking each one. They cost kernel time, which slows everything, the VM included.") : null,
     m.ready ? el("p.ws-note", `Share of all ${m.cores} cores on your Mac, averaged over the last ${mins} minute${mins === 1 ? "" : "s"} while this page was open.`) : null);
   d.addEventListener("toggle", () => safeSet("whyslow", d.open ? "open" : "closed"));
