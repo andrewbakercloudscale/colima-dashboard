@@ -91,18 +91,33 @@ func (s *Server) apiContainers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := r.PathValue("p")
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	details := s.containerDetails(ctx, p, dc, cs)
 	rows := make([]containerRow, len(cs))
+	for i, c := range cs {
+		rows[i] = containerRow{Container: c, Health: docker.HealthFromStatus(c.Status), Details: details[i]}
+		if details[i] != nil {
+			rows[i].CPUs = details[i].CPUs()
+		}
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+// containerDetails returns each container's inspect summary: from the cache while the
+// container is unchanged, otherwise inspected, at most four at a time. An entry is nil when
+// the inspect failed (removed meanwhile, or the engine is slow: the row shows without
+// details). Containers no longer listed are forgotten.
+func (s *Server) containerDetails(ctx context.Context, p string, dc *docker.Client, cs []docker.Container) []*docker.Details {
+	out := make([]*docker.Details, len(cs))
 	keep := map[string]bool{}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
 	for i, c := range cs {
-		rows[i] = containerRow{Container: c, Health: docker.HealthFromStatus(c.Status)}
 		key, stamp := p+"/"+c.ID, detailStamp(c)
 		keep[key] = true
 		if d := s.details.get(key, stamp); d != nil {
-			rows[i].Details, rows[i].CPUs = d, d.CPUs()
+			out[i] = d
 			continue
 		}
 		wg.Add(1)
@@ -112,15 +127,15 @@ func (s *Server) apiContainers(w http.ResponseWriter, r *http.Request) {
 			defer func() { <-sem }()
 			d, err := dc.Details(ctx, c.ID)
 			if err != nil {
-				return // removed meanwhile, or the engine is slow: the row shows without details
+				return
 			}
 			s.details.put(key, stamp, d)
-			rows[i].Details, rows[i].CPUs = d, d.CPUs()
+			out[i] = d
 		}()
 	}
 	wg.Wait()
 	s.details.prune(p, keep)
-	writeJSON(w, http.StatusOK, rows)
+	return out
 }
 
 // apiLimits changes a container's memory, CPU and restart policy in place.
@@ -148,11 +163,23 @@ func (s *Server) apiLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	warnings, err := dc.Update(ctx, id, body)
-	s.details.drop(r.PathValue("p") + "/" + id)
+	p := r.PathValue("p")
+	s.details.drop(p + "/" + id)
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return
 	}
+	if _, raised := body["Memory"]; raised && cur.OOMKilled {
+		// The engine keeps OOMKilled set until the container starts again: remember that this
+		// stop has been dealt with, so the advice does not ask again. Keyed by the full id, as
+		// the advice sees it.
+		if full, err := dc.Inspect(ctx, id); err == nil {
+			if fid, _ := full["Id"].(string); fid != "" {
+				s.advice.markRaised(p+"/"+fid, cur.FinishedAt)
+			}
+		}
+	}
+	s.advice.drop(p)
 	if warnings == nil {
 		warnings = []string{}
 	}

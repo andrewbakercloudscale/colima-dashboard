@@ -470,17 +470,29 @@ async function renderGeneral(main) {
   cards.append(vm);
   const attention = el("div.attention");
   main.replaceChildren(head, attention, cards, ...(boot ? [boot] : [welcomeCard()]));
+  // One "things to fix" card: the failed checks, then the Fix recommendations (limits, CPU,
+  // memory), each painted as its answer arrives.
+  let todo = [], recs = [];
+  const paintAttention = () => {
+    const n = todo.length + recs.length;
+    if (!n) { attention.replaceChildren(); return; }
+    attention.replaceChildren(el("section.card.fix-card",
+      el("div.fix-head", el("h2", n === 1 ? "1 thing to fix" : `${n} things to fix`),
+        el("a.small", { href: "#diagnostics" }, "All checks")),
+      el("ul.fix-list",
+        todo.map((c) => el(`li.fix-item.${c.state}`,
+          el("div.fix-title", el("strong", c.title), el(`span.sev.${c.state}`, c.state === "fail" ? "Problem" : "Warning")),
+          el("p.fix-detail", c.detail), fixRow(c))),
+        recs.map(adviceRow))));
+  };
   api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`).then((list) => {
     setDiagBadge(list);
-    const todo = list.filter(needsFix);
-    if (!todo.length) return;
-    attention.replaceChildren(el("section.card.fix-card",
-      el("div.fix-head", el("h2", todo.length === 1 ? "1 thing to fix" : `${todo.length} things to fix`),
-        el("a.small", { href: "#diagnostics" }, "All checks")),
-      el("ul.fix-list", todo.map((c) => el(`li.fix-item.${c.state}`,
-        el("div.fix-title", el("strong", c.title), el(`span.sev.${c.state}`, c.state === "fail" ? "Problem" : "Warning")),
-        el("p.fix-detail", c.detail), fixRow(c))))));
+    todo = list.filter(needsFix);
+    paintAttention();
   }).catch(() => { /* Diagnostics shows the error */ });
+  if (running && !(boot && !tracker.done)) {
+    loadAdvice().then((d) => { recs = d.issues || []; paintAttention(); }).catch(() => { /* recommendations are extra */ });
+  }
   if (state.overview?.colimaError) {
     main.prepend(el("div.notice.bad", el("p", "colima is not available: ", state.overview.colimaError, "."),
       fixRow({ id: "colima", title: "Install colima", fix: "brew install colima docker", action: "terminal" })));
@@ -555,9 +567,18 @@ async function renderContainers(main) {
       el("thead", el("tr", ["Name", "Image", "State", "Limits", "Ports", "Created", ""].map((h) => el("th", h)))), tbody));
   };
   const load = async () => {
-    try { list = await api("GET", `${P()}/containers`); draw(); } catch (e) { body.replaceChildren(el("div.notice.bad", e.message)); }
+    try { list = await api("GET", `${P()}/containers`); draw(); } catch (e) { body.replaceChildren(el("div.notice.bad", e.message)); return; }
+    // Fix buttons come from the advice, asked for once per visit; again only when a container
+    // has just run out of memory and the answer is over 30 seconds old.
+    const asked = (advice.asked ||= new Set());
+    const unadvised = list.filter((c) => c.details?.oomKilled && c.State !== "running" && !asked.has(c.Id) && !findAdvice(adviceFor.container(c.Id, ["oom"])));
+    if (unadvised.length && !adviceFresh() && !advice.pending) {
+      for (const c of unadvised) asked.add(c.Id);
+      loadAdvice().catch(() => {});
+    }
   };
   filter.addEventListener("input", draw);
+  loadAdvice().catch(() => { /* the list works without it */ });
   await load();
   openRouted(list);
   setTimer(load, 4000);
@@ -1345,8 +1366,12 @@ async function renderPreferences(main) {
   };
   const memGiB = p?.memory ? Math.round(p.memory / 1073741824) : 2;
   const diskGiB = p?.disk ? Math.round(p.disk / 1073741824) : 100;
-  const [cpuF, cpu] = num("CPUs", p?.cpus || 2, 1, 64);
-  const [memF, mem] = num("Memory (GiB)", memGiB, 1, 512);
+  // #preferences?cpus=4&memoryGiB=4 comes from a Fix recommendation: those values are filled in,
+  // and nothing changes until Apply.
+  const rp = state.route?.params || {};
+  const sugCPU = Number(rp.cpus) > 0 ? Number(rp.cpus) : 0, sugMem = Number(rp.memoryGiB) > 0 ? Number(rp.memoryGiB) : 0;
+  const [cpuF, cpu] = num("CPUs", sugCPU || p?.cpus || 2, 1, 64, sugCPU ? `Recommended; now ${p?.cpus || "–"}.` : null);
+  const [memF, mem] = num("Memory (GiB)", sugMem || memGiB, 1, 512, sugMem ? `Recommended; now ${memGiB}.` : null);
   const [diskF, disk] = num("Disk (GiB)", diskGiB, diskGiB, 4096, "Can only grow.");
   const [rtF, rt] = sel("Container runtime", p?.runtime || "docker", ["docker", "containerd"]);
   const vmNow = st?.driver?.includes("Virtualization") ? "vz" : st?.driver?.toLowerCase().includes("qemu") ? "qemu" : "vz";
@@ -1379,7 +1404,8 @@ async function renderPreferences(main) {
     runJob("POST", `/api/profiles/${encodeURIComponent(n)}/actions/start`, {}, () => { state.profile = n; safeSet("profile", n); refreshOverview().then(render); });
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
-  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(), prometheusCard(),
+  const sugNote = sugCPU || sugMem ? el("div.notice.pref-suggest", `Filled in from a recommendation: ${[sugCPU && `${sugCPU} CPUs`, sugMem && `${sugMem} GiB of memory`].filter(Boolean).join(" and ")}. Nothing changes until you press ${apply.textContent}, which restarts the VM.`) : null;
+  main.replaceChildren(head, ...(sugNote ? [sugNote] : []), form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(), prometheusCard(),
     el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
 }
 
@@ -2142,15 +2168,20 @@ async function renderMonitor(main) {
   const body = el("div", { id: "monitor" });
   body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart, .xmenu"); });
   body.addEventListener("pointerleave", () => { metrics.hovering = false; });
+  // Recommendations from the samples this page is collecting, asked again at most every 30 s.
+  // Asked only once samples are flowing, so the server reads them instead of polling docker.
+  const recs = adviceSlot(true);
   // Fetch before swapping the page in, so a redraw goes straight from the old charts to the new
   // ones instead of flashing an empty page while the request is out.
   try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
   if (state.tab !== "monitor") return; // moved to another page meanwhile
-  main.replaceChildren(head, body);
+  main.replaceChildren(head, recs, body);
   drawMonitor(true);
   const tick = async () => {
     try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
     if (!metrics.hovering && !body.querySelector("details.xmenu[open]") && document.body.contains(body)) drawMonitor(true);
+    const last = metrics.samples[metrics.samples.length - 1];
+    if (last?.guest && Date.now() - last.t < 10e3) recs.tick();
   };
   setTimer(tick, 2000);
 }
@@ -2311,6 +2342,7 @@ async function renderRuns(main) {
     el("div", el("h1", "Runs and tests"), el("p.muted", `Every container that ran in ${state.profile}: how long it took and how it ended.`)),
     daysSeg(days, (d) => { safeSet("rundays", String(d)); render(); }));
   main.replaceChildren(head, el("div.card", el("p.muted", "Loading…")));
+  loadAdvice().catch(() => { /* Fix buttons are extra */ });
   const d = await api("GET", `${P()}/runs?days=${days}`);
   if (!d.total) {
     main.replaceChildren(head, el("div.card.empty",
@@ -2341,7 +2373,7 @@ async function renderRuns(main) {
         el("td", el("strong.mono", j.job),
           el("div.flags", j.flaky ? el("span.pill.warn", "flaky") : null,
             j.slower >= 1.2 ? el("span.pill.warn", `${Math.round((j.slower - 1) * 100)}% slower`) : null,
-            j.oom ? el("span.pill.fail", `${j.oom} out of memory`) : null,
+            j.oom ? el("span.pill.fail", `${j.oom} out of memory`) : null, j.oom ? fixSlot(adviceFor.job(j.job)) : null,
             j.restarts ? el("span.pill.x", `${j.restarts} restarts`) : null,
             j.unhealthy ? el("span.pill.warn", `${j.unhealthy} unhealthy`) : null)),
         el("td.mono", String(j.runs)),
@@ -2357,7 +2389,7 @@ async function renderRuns(main) {
       shortBody(d.recent.slice(0, 100).map((r) => el("tr",
         el("td.small.nowrap", new Date(r.t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })),
         el("td", el("strong", r.name), el("div.muted.small.mono", r.job)),
-        el("td", outcomePill(r.outcome), r.restarted ? el("span.muted.small", " restarted") : null),
+        el("td", outcomePill(r.outcome), r.outcome === "oom" ? fixSlot(adviceFor.job(r.job)) : null, r.restarted ? el("span.muted.small", " restarted") : null),
         el("td.mono", String(r.exit)),
         el("td.mono.nowrap", dur(r.seconds))))))));
   main.replaceChildren(head, stats, jobs, recent,
