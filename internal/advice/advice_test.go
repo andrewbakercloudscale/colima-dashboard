@@ -289,6 +289,11 @@ func TestJobOOM(t *testing.T) {
 	if is := find(t, issues, KindOOM); is.Target.Job != "alpine" {
 		t.Fatalf("target %+v", is.Target)
 	}
+	// its limit raised since: no issue for it, and its runs are still covered
+	in.Containers[0].OOMKilled, in.Containers[0].OOMHandled = false, true
+	if issues := Analyse(in); len(issues) != 0 {
+		t.Fatalf("want none, got %v", kinds(issues))
+	}
 }
 
 func TestOrderAndEmpty(t *testing.T) {

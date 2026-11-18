@@ -159,7 +159,7 @@ function showFix(is, opts = {}) {
     el("h3", is.kind === "vm-cpu" ? "Busiest containers" : "Biggest containers"),
     el("ul.fix-cons", is.consumers.map((c) => el("li",
       el("div", el("strong", c.name), el("span.muted.small", ` ${c.use}, ${c.share}% of the VM${c.limit ? `, limit ${c.limit}` : ", no limit"}`)),
-      el("button.ghost.mini", { type: "button", onclick: () => limitConsumer(c) }, `Limit to ${c.suggest}${c.field === "cpus" ? (+c.suggest === 1 ? " CPU" : " CPUs") : ""}`))))) : null;
+      !c.suggest ? null : el("button.ghost.mini", { type: "button", onclick: () => limitConsumer(c) }, `Limit to ${c.suggest}${c.field === "cpus" ? (+c.suggest === 1 ? " CPU" : " CPUs") : ""}`))))) : null;
 
   // The manual route: the limits editor with the recommended values filled in, or Preferences.
   let adjust = null;
@@ -206,7 +206,7 @@ function adviceItem(is) {
   return el(`li.fix-item.${is.severity === "bad" ? "fail" : "warn"}`,
     el("div.fix-title", el("strong", is.title), el(`span.sev.${is.severity === "bad" ? "fail" : "warn"}`, is.severity === "bad" ? "Problem" : "Warning")),
     el("p.fix-detail", is.why),
-    el("div.fix-row", fixButton(is, { label: is.apply.type === "none" ? "See the fix" : "Fix" }),
+    el("div.fix-row", fixButton(is, { label: "Fix…" }),
       is.rows?.length ? el("span.small.muted", is.rows.filter((r) => r.current !== r.recommended).map((r) => `${r.label}: ${r.current} → ${r.recommended}`).join(" · ")) : null));
 }
 

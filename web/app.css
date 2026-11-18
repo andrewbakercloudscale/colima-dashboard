@@ -823,8 +823,7 @@ tbody tr:hover > td { background: color-mix(in srgb, var(--accent) 4%, transpare
 .fix-slot:empty, .cflags:empty { display: none; }
 .fix-slot { display: inline-flex; }
 .fix-pair { display: inline-flex; align-items: center; gap: 4px; }
-button.fix-btn { background: var(--accent); border-color: var(--accent); color: var(--accent-text); padding: 1px 8px; font-size: 11.5px; line-height: 1.5; }
-button.fix-btn.bad { background: var(--badge-bad-bg); border-color: var(--badge-bad-bg); color: var(--badge-bad-fg); }
+button.fix-btn { padding: 1px 8px; font-size: 11.5px; line-height: 1.5; }
 .fix-main { border-left: 3px solid var(--warn); }
 .fix-main.fail { border-left-color: var(--bad); }
 .fix-main .fix-title { flex-wrap: wrap; }
