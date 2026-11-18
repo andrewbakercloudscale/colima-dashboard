@@ -1130,3 +1130,21 @@ button.link.crumb .ichip svg { width: 15px; height: 15px; }
 .modal-card .modal-actions { padding: 14px 20px; margin-top: 16px; background: color-mix(in srgb, var(--accent) 3%, var(--panel)); border-top: 1px solid var(--line); }
 .drawer-body .insp-tiles .tile { padding: 10px 12px; gap: 10px; }
 .drawer-body .insp-tiles .tile-value { font-size: 15px; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a table inside a padded info card fits between its margins */
+.info-card > table { width: calc(100% - 40px); }
+.drawer-body .info-card > table { width: calc(100% - 36px); }
+.insp-table td.actions { width: 1%; }
+/* link buttons (downloads) take the same action colours as buttons */
+a.btn[data-act="go"] { --b: var(--btn-go); --bf: var(--btn-go-fg); --bt: var(--btn-go-tint); --bs: var(--btn-go-soft); }
+a.btn[data-act="info"] { --b: var(--btn-info); --bf: var(--btn-info-fg); --bt: var(--btn-info-tint); --bs: var(--btn-info-soft); }
+a.btn[data-act]:not([data-act="neutral"]) { background: var(--bs); color: var(--bt); border-color: color-mix(in srgb, var(--bt) 35%, transparent); }
+a.btn[data-act]:not([data-act="neutral"]):hover { background: var(--b); color: var(--bf); border-color: var(--b); }
+a.btn.mini { border-radius: 8px; padding: 4px 10px; }
+@media (max-width: 600px) {
+  .files-table th:nth-child(3), .files-table td:nth-child(3) { display: none; }
+  .files-table td, .files-table th { padding: 8px 6px; }
+  .files-table .fname { gap: 8px; }
+  .files-table .fname button { overflow-wrap: anywhere; text-align: left; }
+  .files-table .fsize { min-width: 52px; }
+  .files-card, .files-bar { padding: 10px; }
+}
