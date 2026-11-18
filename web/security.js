@@ -122,7 +122,7 @@ async function renderSecurity(main) {
       el("thead", el("tr", ["Grade", "Image", "Used by", "Vulnerabilities", "Fixable", "Scanned", ""].map((h) => el("th", h)))), tb));
   };
 
-  setTimer(load, 2000);
+  setTimer(load, 2000, main);
   await load();
 }
 
