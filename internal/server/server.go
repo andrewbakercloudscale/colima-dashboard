@@ -81,6 +81,8 @@ type Server struct {
 	mux        *http.ServeMux
 	shellOnce  sync.Once
 	shells     *shells
+	fwdOnce    sync.Once
+	fwds       *forwards
 	details    detailCache // container inspect summaries for the list
 	advice     adviceCache // Fix recommendations, 30 seconds
 	prom       promState

@@ -105,6 +105,12 @@ func (s *Server) apiShellOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.openShell(w, r, dc, r.PathValue("id"), req.Name, req.Cols, req.Rows)
+}
+
+// openShell starts a shell in a container and answers {id}. The Kubernetes page uses it too: on
+// Colima's docker runtime a pod's containers are Docker containers.
+func (s *Server) openShell(w http.ResponseWriter, r *http.Request, dc *docker.Client, containerID, prompt string, cols, rows int) {
 	store := s.shellStore()
 	store.mu.Lock()
 	n := len(store.m)
@@ -115,11 +121,11 @@ func (s *Server) apiShellOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	name := strings.TrimPrefix(req.Name, "/")
+	name := strings.TrimPrefix(prompt, "/")
 	if !shellName.MatchString(name) {
 		name = ""
 	}
-	execID, err := dc.ExecCreate(ctx, r.PathValue("id"), append(append([]string{}, shellCmd...), name), true)
+	execID, err := dc.ExecCreate(ctx, containerID, append(append([]string{}, shellCmd...), name), true)
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return
@@ -130,8 +136,8 @@ func (s *Server) apiShellOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFor(err), err)
 		return
 	}
-	if req.Cols > 0 && req.Rows > 0 {
-		_ = dc.ExecResize(ctx, execID, clamp(req.Cols, 10, 500), clamp(req.Rows, 5, 300))
+	if cols > 0 && rows > 0 {
+		_ = dc.ExecResize(ctx, execID, clamp(cols, 10, 500), clamp(rows, 5, 300))
 	}
 	var b [16]byte
 	_, _ = rand.Read(b[:])

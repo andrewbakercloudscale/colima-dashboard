@@ -676,7 +676,9 @@ function loadXterm() {
   return xtermLoad;
 }
 
-async function showShell(id, name) {
+// showShell opens a terminal in a container. opts.url and opts.body let the Kubernetes page open
+// one in a pod's container through its own endpoint; the rest (stream, input, resize) is shared.
+async function showShell(id, name, opts) {
   const box = el("div.term");
   const status = el("span.term-status", el("i"), "Connecting…");
   const setStatus = (text, tone) => { status.className = `term-status ${tone || ""}`; status.replaceChildren(el("i"), text); };
@@ -714,7 +716,8 @@ async function showShell(id, name) {
     term.dispose();
   };
   try {
-    ({ id: sid } = await api("POST", `${P()}/containers/${encodeURIComponent(id)}/shell`, { cols: term.cols, rows: term.rows, name }));
+    const url = opts?.url || `${P()}/containers/${encodeURIComponent(id)}/shell`;
+    ({ id: sid } = await api("POST", url, { cols: term.cols, rows: term.rows, ...(opts?.body || { name }) }));
   } catch (e) { setStatus(e.message, "bad"); return; }
   if (closed) { fetch(`/api/shells/${sid}`, { method: "DELETE", credentials: "same-origin" }).catch(() => {}); return; }
   setStatus("Connected", "on");
@@ -1156,156 +1159,6 @@ async function pruneVolumes() {
   try { const r = await api("POST", `${P()}/volumes/prune`); toast(`Removed ${r.deleted} volumes, freed ${bytes(r.spaceReclaimed)}`); render(); } catch (e) { toast(e.message, true); }
 }
 
-// ---------- Kubernetes ----------
-
-async function renderKubernetes(main) {
-  const head = el("div.head", el("div", el("h1", "Kubernetes"), el("p.muted", "k3s inside the Colima VM: version, ingress, workloads and their logs.")));
-  if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
-  main.replaceChildren(head, el("div.card", el("p.muted", "Loading…")));
-  const k = await api("GET", `${P()}/kubernetes`);
-  const set = k.settings || {};
-  const restartNote = `Colima restarts profile ${state.profile}; running containers stop for a minute.`;
-
-  // Settings: on or off, version, Traefik, reset. Each change restarts the VM, so each asks first.
-  const toggle = el("button", { type: "button", class: k.enabled ? "ghost" : "" }, k.enabled ? "Turn off" : "Turn on");
-  toggle.addEventListener("click", async () => {
-    const on = !k.enabled;
-    if (!await confirmBox(on ? "Turn Kubernetes on?" : "Turn Kubernetes off?", restartNote, on ? "Turn on" : "Turn off", false)) return;
-    runJob("POST", `${P()}/actions/apply`, { kubernetes: on }, () => render());
-  });
-  const verSel = el("select", { "aria-label": "k3s version" }, el("option", { value: set.version || "" }, set.version || "colima's default"));
-  const verBtn = el("button.ghost", { type: "button", disabled: true }, "Change version");
-  api("GET", "/api/k3s/versions").then((vs) => {
-    const opts = vs.map((v) => el("option", { value: v.version, selected: v.version === set.version },
-      `${v.version}  (${v.channel === "stable" ? "stable" : v.channel})`));
-    if (set.version && !vs.some((v) => v.version === set.version)) opts.unshift(el("option", { value: set.version, selected: true }, `${set.version}  (current)`));
-    verSel.replaceChildren(...opts);
-  }).catch(() => { /* keep the current version only */ });
-  verSel.addEventListener("change", () => { verBtn.disabled = verSel.value === set.version; });
-  verBtn.addEventListener("click", async () => {
-    const v = verSel.value;
-    const older = set.version && v.localeCompare(set.version, undefined, { numeric: true }) < 0;
-    if (!await confirmBox(`Switch k3s to ${v}?`, older
-      ? `${v} is older than ${set.version}. k3s cannot go back a version in place: reset Kubernetes afterwards if it fails to start. ${restartNote}`
-      : `${restartNote} Workloads stay.`, "Switch", older)) return;
-    runJob("POST", `${P()}/actions/apply`, { kubernetesVersion: v, ...(k.enabled ? {} : { kubernetes: true }) }, () => render());
-  });
-  const traefik = el("input", { type: "checkbox", checked: !!set.traefik });
-  traefik.addEventListener("change", async () => {
-    const on = traefik.checked;
-    if (!await confirmBox(on ? "Turn on Traefik?" : "Turn off Traefik?",
-      `${on ? "k3s installs the Traefik ingress controller and load balancer on ports 80 and 443." : "k3s removes Traefik; Ingress resources stop being served."} ${restartNote}`, on ? "Turn on" : "Turn off", false)) {
-      traefik.checked = !on; return;
-    }
-    runJob("POST", `${P()}/actions/apply`, { traefik: on }, () => render());
-  });
-  const reset = el("button.ghost.danger", { type: "button", onclick: resetKubernetes }, "Reset Kubernetes…");
-  const settings = el("section.card.k8s-card",
-    el("div.vm-head",
-      el("div.vm-title", el("span.vm-label", "Kubernetes"), el("h2", k.enabled ? "k3s is running" : "Off")),
-      el("div.k8s-actions", el(`span.status.${k.enabled ? "on" : "off"}`, el("i"), k.enabled ? "On" : "Off"), toggle)),
-    el("div.k8s-settings",
-      el("div.k8s-row", el("div", el("strong", "Version"), el("p.small.muted", "A k3s release. New versions upgrade in place; going back needs a reset.")),
-        el("div.k8s-ctl", verSel, verBtn)),
-      el("div.k8s-row", el("div", el("strong", "Traefik ingress"), el("p.small.muted", "k3s's bundled ingress controller. Colima turns it off by default; Rancher Desktop turns it on.")),
-        el("label.switch", traefik, el("span", set.traefik ? "On" : "Off"))),
-      k.enabled ? el("div.k8s-row", el("div", el("strong", "Reset"), el("p.small.muted", "Deletes the cluster and creates an empty one. Containers, images and volumes outside Kubernetes stay.")),
-        reset) : null));
-  const parts = [settings];
-
-  if (k.enabled) {
-    const ctx = el("section.card", el("h2", "kubectl on your Mac"));
-    if (k.currentContextError) {
-      ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config."), fixRow({ id: "kubectx", title: "kubectl", fix: "brew install kubectl", action: "terminal" }));
-    } else if (k.currentContext !== k.context) {
-      ctx.append(el("p", "kubectl points at ", el("code", k.currentContext), ", not this profile."), fixRow({ id: "kubectx", title: "kubectl context", fix: `kubectl config use-context ${k.context}`, action: "terminal" }));
-    } else {
-      ctx.append(el("p", el("span.pill.ok", "ok"), " kubectl uses ", el("code", k.context), "."));
-    }
-    parts.push(workloadsCard(), ctx,
-      el("details.card", el("summary", el("strong", "Nodes and version")), el("pre.log", ((k.nodes || k.nodesError || "") + "\n" + (k.version || "")).trim())));
-  }
-  main.replaceChildren(head, ...parts);
-}
-
-function workloadsCard() {
-  const ns = el("select", { "aria-label": "Namespace" }, el("option", { value: "" }, "All namespaces"));
-  const sys = el("input", { type: "checkbox" });
-  const body = el("div", el("p.muted.small", "Loading…"));
-  const card = el("section.card", el("div.card-head", el("h2", "Workloads"),
-    el("div.toolbar", ns, el("label.check", sys, "Show kube-system"),
-      el("button.ghost.mini", { type: "button", onclick: () => load() }, "Refresh"))), body);
-  let pods = [];
-  const tone = (p) => p.reason === "Terminating" ? "busy"
-    : p.reason ? "fail" : p.phase === "Running" && p.ready.split("/")[0] === p.ready.split("/")[1] ? "ok"
-      : p.phase === "Succeeded" ? "x" : p.phase === "Failed" ? "fail" : "warn";
-  const draw = () => {
-    const shown = pods.filter((p) => (!ns.value || p.namespace === ns.value) && (sys.checked || ns.value === "kube-system" || p.namespace !== "kube-system"));
-    if (!shown.length) { body.replaceChildren(el("p.muted", pods.length ? "Nothing here; kube-system is hidden." : "No pods yet. kubectl apply something and it shows up here.")); return; }
-    body.replaceChildren(el("div.table-wrap", el("table",
-      el("thead", el("tr", el("th", "Pod"), el("th", "Namespace"), el("th", "Status"), el("th", "Ready"), el("th", "Restarts"), el("th", "Age"), el("th"))),
-      shortBody(shown.map((p) => el("tr",
-        el("td", el("strong.mono", p.name), p.owner ? el("div.muted.small", p.owner) : null),
-        el("td.small", p.namespace),
-        el("td", el(`span.pill.${tone(p)}`, p.reason || p.phase)),
-        el("td.small.num", p.ready),
-        el("td.small.num", p.restarts ? el("span.bad-text", String(p.restarts)) : "0"),
-        el("td.small", ago(p.created)),
-        el("td.actions",
-          el("button.ghost.mini", { type: "button", onclick: () => showPodLogs(p) }, "Logs"),
-          el("button.ghost.mini.danger", { type: "button", onclick: () => deletePod(p, load) }, "Delete")))), 25))));
-  };
-  const load = async () => {
-    try { pods = await api("GET", `${P()}/kubernetes/pods`); }
-    catch (e) { body.replaceChildren(el("div.notice.bad", e.message)); return; }
-    const names = [...new Set(pods.map((p) => p.namespace))].sort();
-    const cur = ns.value;
-    ns.replaceChildren(el("option", { value: "" }, "All namespaces"), ...names.map((n) => el("option", { value: n, selected: n === cur }, n)));
-    draw();
-  };
-  ns.addEventListener("change", draw);
-  sys.addEventListener("change", draw);
-  load();
-  return card;
-}
-
-function showPodLogs(p) {
-  const log = el("pre.log");
-  const follow = el("input", { type: "checkbox", checked: true });
-  const prev = el("input", { type: "checkbox" });
-  const lines = [];
-  const start = () => {
-    if (state.logSource) state.logSource.close();
-    lines.length = 0;
-    log.replaceChildren();
-    const src = new EventSource(`${P()}/kubernetes/pods/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}/logs?tail=500&follow=${follow.checked ? 1 : 0}&previous=${prev.checked ? 1 : 0}`);
-    state.logSource = src;
-    src.addEventListener("line", (e) => {
-      const l = JSON.parse(e.data);
-      lines.push(l.t);
-      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
-      log.append(lineNode(l, ""));
-      if (log.childNodes.length > 5000) log.firstChild.remove();
-      if (atBottom) log.scrollTop = log.scrollHeight;
-    });
-    src.addEventListener("done", () => src.close());
-    src.addEventListener("failed", (e) => { src.close(); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
-  };
-  follow.addEventListener("change", start);
-  prev.addEventListener("change", start);
-  openDrawer(`Logs: ${p.namespace}/${p.name}`,
-    el("div.toolbar", el("label.check", follow, "Follow"), el("label.check", prev, "Previous run (after a crash)"),
-      el("button.ghost.mini", { type: "button", onclick: () => download(`${p.name}.log`, lines.join("\n")) }, "Download")),
-    log);
-  start();
-}
-
-async function deletePod(p, after) {
-  if (!await confirmBox(`Delete pod ${p.name}?`, p.owner ? `${p.owner} starts a new one straight away, so this is a restart.` : "Nothing owns this pod, so it is gone for good.", "Delete", true)) return;
-  try { await api("DELETE", `${P()}/kubernetes/pods/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}`); toast(`Deleting ${p.name}`); setTimeout(after, 800); }
-  catch (e) { toast(e.message, true); }
-}
-
 // ---------- Snapshots ----------
 
 async function renderSnapshots(main) {
@@ -1575,7 +1428,8 @@ async function renderPorts(main) {
     el("div", el("h1", "Port Forwarding"), el("p.muted", "What you can reach on localhost. Colima forwards every published container port and Kubernetes LoadBalancer port by itself; there is nothing to switch on.")));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const cCard = el("div.card", el("h2", "Containers"), el("p.muted", "Loading…"));
-  const kCard = currentProfile()?.kubernetes ? el("div.card", el("h2", "Kubernetes services"), el("p.muted", "Loading…")) : null;
+  // colima reports kubernetes off when kubectl is missing on the Mac; the runtime still says k3s.
+  const kCard = currentProfile()?.kubernetes || /k3s/.test(currentProfile()?.runtime || "") ? el("div.card", el("h2", "Kubernetes services"), el("p.muted", "Loading…")) : null;
   main.replaceChildren(head, cCard, ...(kCard ? [kCard] : []));
   const open = (port) => el("a", { href: `http://localhost:${port}`, target: "_blank", rel: "noopener noreferrer" }, `localhost:${port}`);
   try {
@@ -1611,16 +1465,20 @@ async function renderPorts(main) {
           el("td", el("strong", s.name), el("div.muted.small", s.namespace)),
           el("td", s.type),
           el("td.mono", `${p.port}/${(p.protocol || "TCP").toLowerCase()}`),
-          el("td", local ? open(local) : el("span.muted.small", "inside the cluster only"))));
+          el("td", local ? open(local) : el("span.muted.small", "inside the cluster only")),
+          el("td.actions", !local && s.type !== "ExternalName" ? el("button.ghost.mini", { type: "button", onclick: () => forwardDialog("service", s.namespace, s.name, [p.port]) }, "Forward…") : null)));
       }
     }
     kCard.replaceChildren(el("h2", "Kubernetes services"), rows.length
-      ? el("table", el("thead", el("tr", ["Service", "Type", "Port", "On your Mac"].map((h) => el("th", h)))), el("tbody", rows))
+      ? el("div.table-wrap", el("table", el("thead", el("tr", ["Service", "Type", "Port", "On your Mac", ""].map((h) => el("th", h)))), el("tbody", rows)))
       : el("p.muted", "No services."),
-      el("p.small.muted", "ClusterIP services are reachable inside the cluster only; reach one from the Mac with ", el("code", "kubectl port-forward"), "."));
+      el("p.small.muted", "ClusterIP services are reachable inside the cluster only; Forward… brings one to localhost (kubectl port-forward inside the VM)."));
   } catch (e) {
     kCard.replaceChildren(el("h2", "Kubernetes services"), el("div.notice.bad", e.message));
   }
+  // Running Kubernetes port forwards (k8s.js).
+  await loadForwards();
+  if (state.tab === "ports") kCard.after(k8sForwardsCard(() => render()));
 }
 
 // A whole log file, formatted line by line (the last 2000 lines; Download has all of it).
@@ -1661,7 +1519,7 @@ const tabs = {
   containers: renderContainers,
   images: renderImages,
   volumes: renderVolumes,
-  kubernetes: renderKubernetes,
+  // kubernetes: renderKubernetes is added by k8s.js
   snapshots: renderSnapshots,
   preferences: renderPreferences,
   troubleshooting: renderTroubleshooting,
@@ -2519,4 +2377,5 @@ tabs.runs = renderRuns;
 tabs.builds = renderBuilds;
 tabs.report = renderReport; // report.js
 
-boot();
+// k8s.js loads after this file and adds its tab; boot once every script has run.
+document.addEventListener("DOMContentLoaded", () => boot());

@@ -32,6 +32,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics", s.auth(s.apiDiagnostics))
 	s.updateRoutes(m)
 	s.terminalRoutes(m)
+	s.k8sRoutes(m)
 	s.historyRoutes(m)
 	s.promRoutes(m)
 	m.HandleFunc("GET /api/profiles/{p}/support-bundle", s.auth(s.apiSupportBundle))
@@ -566,6 +567,15 @@ func (s *Server) apiKubernetes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"running": false, "error": err.Error()})
 		return
+	}
+	// colima status says kubernetes is off whenever kubectl is missing on the Mac, even with k3s
+	// running in the VM. This page runs kubectl in the VM, so ask k3s itself before believing it.
+	if !st.Kubernetes {
+		pctx, pcancel := context.WithTimeout(ctx, 6*time.Second)
+		if _, err := s.opt.Colima.Kubectl(pctx, p, "get", "--raw", "/readyz"); err == nil {
+			st.Kubernetes = true
+		}
+		pcancel()
 	}
 	out := map[string]any{"running": true, "enabled": st.Kubernetes, "context": colima.KubeContext(p)}
 	if ks, err := colima.ReadKubeSettings(s.opt.ColimaHome, p); err == nil {

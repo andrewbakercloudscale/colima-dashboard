@@ -62,6 +62,28 @@ func (ExecRunner) Stream(ctx context.Context, w io.Writer, name string, args ...
 	return cmd.Run()
 }
 
+// InputRunner is a Runner that can also feed the command's standard input.
+type InputRunner interface {
+	OutputInput(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error)
+}
+
+// OutputInput runs the command with stdin attached and returns stdout; stderr becomes the error.
+func (ExecRunner) OutputInput(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = stdin
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return out, errors.New(msg)
+	}
+	return out, nil
+}
+
 // Client runs colima.
 type Client struct {
 	Bin    string
@@ -537,6 +559,21 @@ func (c *Client) Kubectl(ctx context.Context, profile string, args ...string) (s
 	}
 	full := append([]string{"ssh", "-p", profile, "--", "sudo", "k3s", "kubectl"}, args...)
 	out, err := c.Runner.Output(ctx, c.Bin, full...)
+	return string(out), err
+}
+
+// KubectlInput runs kubectl inside the profile's VM with stdin fed to it (kubectl apply -f -).
+// Its error is kubectl's own message, without the command line.
+func (c *Client) KubectlInput(ctx context.Context, profile string, stdin io.Reader, args ...string) (string, error) {
+	if !ValidProfile(profile) {
+		return "", fmt.Errorf("invalid profile name %q", profile)
+	}
+	ir, ok := c.Runner.(InputRunner)
+	if !ok {
+		return "", errors.New("this runner cannot send input")
+	}
+	full := append([]string{"ssh", "-p", profile, "--", "sudo", "k3s", "kubectl"}, args...)
+	out, err := ir.OutputInput(ctx, stdin, c.Bin, full...)
 	return string(out), err
 }
 
