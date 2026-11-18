@@ -335,9 +335,15 @@ async function refreshOverview() {
     }
     sel.replaceChildren(...(names.length ? names : ["default"]).map((n) => el("option", { value: n, selected: n === state.profile }, n)));
     renderVMState();
+    // Redraw the page when the profile's state really changes. A status that flips for one poll
+    // (colima slow to answer while the VM is flat out) must not blank the page, so a new state
+    // has to be seen twice in a row first; start, stop and restart redraw by themselves.
     const key = `${state.profile}:${currentProfile()?.status}`;
-    if (state.lastKey && state.lastKey !== key && $("#modal").hidden) render();
-    state.lastKey = key;
+    if (!state.lastKey || key === state.lastKey) { state.lastKey = key; state.pendingKey = ""; }
+    else if (state.lastKey.split(":")[0] !== state.profile || state.pendingKey === key) {
+      state.lastKey = key; state.pendingKey = "";
+      if ($("#modal").hidden) render();
+    } else state.pendingKey = key;
     $("#versions").textContent = `Colima Dashboard ${ov.version}` + (ov.colimaVersion ? ` · colima ${ov.colimaVersion}` : "");
     if (state.bootVersion && ov.version !== state.bootVersion) { location.reload(); return; }
     state.bootVersion = state.bootVersion || ov.version;
@@ -407,6 +413,25 @@ async function render() {
 
 // ---------- General ----------
 
+// Small coloured icon squares for the General cards.
+const CHIP_PATHS = {
+  box: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
+  chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  cpu: '<path d="M4 18V6M4 18h16"/><path d="m7 14 3-4 3 2 5-6"/>',
+  mem: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 11v2M11 11v2M15 11v2M7 17v3M17 17v3"/>',
+  disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  net: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/>',
+  engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
+};
+function chip(name) {
+  const s = el("span.ichip");
+  s.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${CHIP_PATHS[name] || ""}</svg>`;
+  return s;
+}
+function cardHead(hue, ic, title, note) {
+  return el(`div.info-head.${hue}`, chip(ic), el("h2", title), note ? el("span.muted.small", note) : null);
+}
+
 async function renderGeneral(main) {
   const p = currentProfile();
   const running = isRunning();
@@ -423,21 +448,22 @@ async function renderGeneral(main) {
     // While it starts, the engine is not there yet: show the progress, not errors.
     head.lastChild.replaceChildren(el("button", { type: "button", disabled: true }, "Starting…"));
   }
-  // The VM at a glance: name and state on top, then one tile per setting.
+  // The VM at a glance: name and state on top, then one coloured tile per setting.
   const tone = !p ? "none" : running ? "on" : /ing$/i.test(p.status || "") ? "busy" : "off";
   const vm = el("section.card.vm-card",
     el("div.vm-head",
       el("div.vm-title", el("span.vm-label", "Profile"), el("h2", state.profile)),
       el(`span.status.${tone}`, el("i"), p ? p.status : "Not created")));
   if (p) {
-    const tile = (label, value) => el("div.tile", el("span.tile-label", label), el("span.tile-value", value));
+    const tile = (hue, ic, label, value) => el(`div.tile.${hue}`, chip(ic),
+      el("div.tile-text", el("span.tile-label", label), el("span.tile-value", value)));
     vm.append(el("div.tiles",
-      tile("Runtime", p.runtime || "–"),
-      tile("Architecture", p.arch || "–"),
-      tile("CPUs", String(p.cpus || "–")),
-      tile("Memory", gib(p.memory)),
-      tile("Disk", gib(p.disk)),
-      p.address ? tile("Address", p.address) : null));
+      tile("t1", "box", "Runtime", p.runtime || "–"),
+      tile("t7", "chip", "Architecture", p.arch || "–"),
+      tile("t3", "cpu", "CPUs", String(p.cpus || "–")),
+      tile("t2", "mem", "Memory", gib(p.memory)),
+      tile("t4", "disk", "Disk", gib(p.disk)),
+      p.address ? tile("t5", "net", "Address", p.address) : null));
   } else {
     vm.append(el("p.muted.vm-empty", "This profile does not exist yet. Start creates it with Colima's defaults."));
   }
@@ -464,7 +490,7 @@ async function renderGeneral(main) {
   const st = await api("GET", `${P()}/status`);
   if (st.running) {
     const s = st.status;
-    const eng = el("div.card", el("h2", "Engine"), el("dl.kv",
+    const eng = el("div.card.info-card", cardHead("t1", "engine", "Engine", s.arch || ""), el("dl.kv.kv-rows",
       el("dt", "VM"), el("dd", s.driver),
       el("dt", "Mounts"), el("dd", s.mount_type),
       el("dt", "Kubernetes"), el("dd", s.kubernetes ? "on" : "off"),
@@ -472,20 +498,21 @@ async function renderGeneral(main) {
       el("dt", "Socket"), el("dd.mono.small", (s.docker_socket || "").replace("unix://", ""))));
     cards.append(eng);
   }
-  const disk = el("div.card", el("h2", "Disk use"), el("p.muted.small", "Loading…"));
+  const diskHead = () => cardHead("t4", "disk", "Disk use", "");
+  const disk = el("div.card.info-card", diskHead(), el("p.muted.small", "Loading…"));
   cards.append(disk);
   api("GET", `${P()}/df`).then((rows) => {
     const max = Math.max(1, ...rows.map((r) => r.size));
     const total = rows.reduce((a, r) => a + r.size, 0);
     const reclaim = rows.reduce((a, r) => a + r.reclaimable, 0);
-    disk.replaceChildren(el("h2", "Disk use"),
-      el("div.bars", rows.map((r) => {
-        const fill = el("div.fill");
+    disk.replaceChildren(diskHead(),
+      el("div.bars", rows.map((r, i) => {
+        const fill = el(`div.fill.f${i % 8 + 1}`);
         fill.style.width = `${(r.size / max) * 100}%`;
         return el("div.bar", el("span", `${r.type} (${r.count})`), el("div.track", fill), el("span.mono", bytes(r.size)));
       })),
       el("p.small.muted", `${bytes(total)} in use, ${bytes(reclaim)} reclaimable by pruning.`));
-  }).catch((e) => disk.replaceChildren(el("h2", "Disk use"), el("p.muted", e.message)));
+  }).catch((e) => disk.replaceChildren(diskHead(), el("p.muted", e.message)));
 }
 
 // ---------- Containers ----------
@@ -1393,9 +1420,10 @@ function drawThemeBtn() {
   const dark = isDark();
   const label = dark ? "Switch to light mode" : "Switch to dark mode";
   b.title = label; b.setAttribute("aria-label", label);
-  b.innerHTML = dark
+  const text = `<span>${dark ? "Light" : "Dark"}</span>`;
+  b.innerHTML = (dark
     ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
-    : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>';
+    : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>') + text;
 }
 document.getElementById("sb-theme")?.addEventListener("click", () => {
   safeSet("theme", isDark() ? "light" : "dark");
@@ -2083,12 +2111,16 @@ async function renderMonitor(main) {
   const body = el("div", { id: "monitor" });
   body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart, .xmenu"); });
   body.addEventListener("pointerleave", () => { metrics.hovering = false; });
+  // Fetch before swapping the page in, so a redraw goes straight from the old charts to the new
+  // ones instead of flashing an empty page while the request is out.
+  try { await pollMetrics(); } catch (e) { metrics.error = e.message; }
+  if (state.tab !== "monitor") return; // moved to another page meanwhile
   main.replaceChildren(head, body);
+  drawMonitor(true);
   const tick = async () => {
     try { await pollMetrics(); } catch (e) { metrics.error = e.message; }
     if (!metrics.hovering && !body.querySelector("details.xmenu[open]") && document.body.contains(body)) drawMonitor(true);
   };
-  await tick();
   setTimer(tick, 2000);
 }
 
@@ -2098,9 +2130,12 @@ function drawMonitor(dataOnly) {
   if (!body) return;
   const range = RANGES[safeGet("range")] ? safeGet("range") : "15m";
   for (const b of document.querySelectorAll(".seg button")) b.className = b.dataset.range === range ? "on" : "off";
+  // Use the newest sample that reached the VM; one that missed it (VM too busy to answer in time)
+  // keeps the charts on screen instead of dropping back to "Collecting".
   const all = metrics.samples;
-  const last = all[all.length - 1];
-  if (!last || !last.guest) {
+  let last = null;
+  for (let i = all.length - 1; i >= 0 && !last; i--) if (all[i].guest) last = all[i];
+  if (!last) {
     body.replaceChildren(el("div.card.empty", metrics.error ? el("p", metrics.error) : el("p", "Collecting the first samples… graphs appear in a few seconds.")));
     return;
   }
