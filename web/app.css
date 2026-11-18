@@ -165,6 +165,34 @@ td.trunc { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-sp
 div.nowrap { white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
 tr.group td { background: var(--side); font-weight: 600; }
+/* Containers on a phone: each container becomes a stacked block instead of a seven column row
+   that scrolls sideways. */
+@media (max-width: 600px) {
+  .ctable, .ctable tbody { display: block; }
+  .ctable thead { display: none; }
+  .ctable tr { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 14px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .ctable tr:last-child { border-bottom: 0; }
+  .ctable td { display: block; padding: 0; border: 0; }
+  .ctable td:first-child { flex: 1 1 100%; }
+  .ctable td.trunc { flex: 1 1 100%; max-width: 100%; }
+  .ctable td.actions.wrap { flex: 1 1 100%; width: auto; text-align: left; }
+  .ctable td.actions.wrap button { margin: 2px 6px 2px 0; }
+  .ctable tr.group { align-items: center; background: var(--side); }
+  .ctable tr.group td { background: none; }
+  .ctable tr.group td:first-child { flex: 1 1 auto; }
+  .ctable tr.group td.actions { flex: none; }
+  table.stack, table.stack tbody { display: block; }
+  table.stack thead { display: none; }
+  table.stack tr { display: block; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  table.stack tr:last-child { border-bottom: 0; }
+  table.stack td { display: block; position: relative; padding: 3px 0; border: 0; text-align: left; white-space: normal; max-width: none; width: auto; overflow-wrap: anywhere; }
+  table.stack td[data-label] { padding-left: 38%; min-height: 22px; }
+  table.stack td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 5px; width: calc(38% - 10px);
+    color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; overflow-wrap: anywhere; }
+  table.stack td.actions button, table.stack td.actions a { margin: 2px 6px 2px 0; }
+  .upd-head { flex-wrap: wrap; }
+  .upd-head-r { flex-wrap: wrap; }
+}
 
 .pill {
   display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
@@ -450,7 +478,7 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 .news details { background: var(--code); border-radius: 10px; padding: 10px 14px; }
 .news summary { cursor: pointer; font-weight: 600; }
 .news summary .muted { font-weight: 400; margin-left: 8px; font-size: 12.5px; }
-.news p { white-space: pre-line; font-size: 13px; margin: 8px 0 0; }
+.news p { white-space: pre-line; font-size: 13px; margin: 8px 0 0; overflow-wrap: anywhere; }
 
 @media (prefers-reduced-motion: reduce) {
   .splash-logo, .splash-name, .splash-sub, .splash-bar span, .sb-progress span, .boot .box, .boot .scan, .boot .led, .steps li.now .tick { animation: none !important; }
@@ -1026,6 +1054,17 @@ button.fix-btn { padding: 1px 8px; font-size: 11.5px; line-height: 1.5; }
 table.diag { table-layout: fixed; }
 table.diag td:first-child { width: 64px; }
 table.diag td.actions { width: 76px; }
+table.diag td { overflow-wrap: anywhere; }
+table.diag td:first-child .pill { white-space: nowrap; }
+@media (max-width: 520px) {
+  table.diag td:first-child { width: 58px; padding-right: 4px; }
+  table.diag td.actions { width: 64px; }
+  table.diag td:first-child .pill { padding-left: 6px; padding-right: 6px; }
+  /* Status bar: keep one row on a phone (no ⌘K on touch, icon only theme switch, shorter labels). */
+  .statusbar { gap: 8px; padding: 0 12px; }
+  .statusbar .pal-hint-btn, #sb-version .muted, #sb-net b, .sb-theme span { display: none; }
+  .sb-theme { width: 26px; padding: 0; }
+}
 table.diag .copy { flex-wrap: wrap; }
 table.diag .copy code { overflow-wrap: anywhere; white-space: normal; min-width: 0; }
 
