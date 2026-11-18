@@ -47,6 +47,9 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
   container (pick bash or sh, and the user) or a Kubernetes pod, with recent ones one click away.
 - Live stats per container (CPU, memory, network and disk I/O, processes).
 - Build an image from a folder on your Mac, push it, or scan it with Trivy.
+- Security: a CVE scan with Trivy of every image your containers use (or every image), with a
+  grade per image, charts by severity, each CVE with the version that fixes it, and what to do.
+  Trivy installs with one click.
 - Image bloat: a grade for every image, where the space goes (layers, folders, biggest files),
   what wastes it (build tools with no multi-stage build, package caches, deleted files that still
   ship, chown copies, .git, archives) and a suggested multi-stage Dockerfile and .dockerignore.

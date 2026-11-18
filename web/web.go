@@ -5,5 +5,5 @@ import "embed"
 
 // Assets is the page: index.html, locked.html and the files under /static/.
 //
-//go:embed index.html locked.html app.js k8s.js errors.js report.js charts.js logfmt.js containers.js fix.js bloat.js shells.js palette.js locked.js app.css icon.svg vendor/xterm.js vendor/xterm.css vendor/addon-fit.js vendor/XTERM-LICENSE
+//go:embed index.html locked.html app.js k8s.js errors.js report.js charts.js logfmt.js containers.js fix.js bloat.js shells.js security.js palette.js locked.js app.css icon.svg vendor/xterm.js vendor/xterm.css vendor/addon-fit.js vendor/XTERM-LICENSE
 var Assets embed.FS
