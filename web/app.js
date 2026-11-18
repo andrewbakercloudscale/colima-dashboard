@@ -484,9 +484,10 @@ async function renderGeneral(main) {
   main.replaceChildren(head, attention, cards, ...(boot ? [boot] : [welcomeCard()]));
   // One "things to fix" card: the failed checks, then the Fix recommendations (limits, CPU,
   // memory), each painted as its answer arrives.
-  let todo = [], recs = [];
+  let todo = [], recs = [], errs = null;
   const paintAttention = () => {
-    const n = todo.length + recs.length;
+    const errRow = typeof errorsRow === "function" ? errorsRow(errs) : null;
+    const n = todo.length + recs.length + (errRow ? 1 : 0);
     if (!n) { attention.replaceChildren(); return; }
     attention.replaceChildren(el("section.card.fix-card",
       el("div.fix-head", el("h2", n === 1 ? "1 thing to fix" : `${n} things to fix`),
@@ -495,7 +496,7 @@ async function renderGeneral(main) {
         todo.map((c) => el(`li.fix-item.${c.state}`,
           el("div.fix-title", el("strong", c.title), el(`span.sev.${c.state}`, c.state === "fail" ? "Problem" : "Warning")),
           el("p.fix-detail", c.detail), fixRow(c))),
-        recs.map(adviceRow))));
+        recs.map(adviceRow), errRow)));
   };
   api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`).then((list) => {
     setDiagBadge(list);
@@ -504,6 +505,7 @@ async function renderGeneral(main) {
   }).catch(() => { /* Diagnostics shows the error */ });
   if (running && !(boot && !tracker.done)) {
     loadAdvice().then((d) => { recs = d.issues || []; paintAttention(); }).catch(() => { /* recommendations are extra */ });
+    loadErrors(900).then((d) => { errs = d; paintAttention(); }).catch(() => { /* the Errors page shows why */ });
   }
   if (state.overview?.colimaError) {
     main.prepend(el("div.notice.bad", el("p", "colima is not available: ", state.overview.colimaError, "."),
@@ -1555,6 +1557,7 @@ const NAV_ICONS = {
   runs: ["#15803d", "M4 6h9M4 12h9M4 18h5M14 16l3 3 5-6"],
   snapshots: ["#0369a1", "M4 7h3l2-3h6l2 3h3v12H4zM12 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"],
   builds: ["#9333ea", "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"],
+  errors: ["#dc2626", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7.5v5.5M12 16v.5"],
   report: ["#4338ca", "M6 3h9l4 4v14H6zM14 3v5h5M9 17v-3M12 17v-6M15 17v-4"],
 };
 function decorateNav() {
@@ -1926,7 +1929,9 @@ async function boot() {
   setInterval(() => { if (!document.hidden) refreshOverview(); }, 10000);
   // The Diagnostics count in the sidebar, like Rancher Desktop's.
   refreshDiagBadge();
-  setInterval(() => { if (!document.hidden) refreshDiagBadge(); }, 30 * 60 * 1000); // its checks run docker on the Mac
+  setInterval(() => { if (!document.hidden) refreshDiagBadge(); }, 30 * 60 * 1000);
+  refreshErrBadge();
+  setInterval(() => { if (!document.hidden) refreshErrBadge(); }, 60 * 1000); // its checks run docker on the Mac
   // Re-attach to a job still running from before a reload.
   const running = (state.overview?.jobs || []).filter((j) => !j.done).sort((a, b) => a.started < b.started ? 1 : -1)[0];
   if (running) followJob(running, () => render());

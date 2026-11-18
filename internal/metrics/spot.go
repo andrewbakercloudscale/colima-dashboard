@@ -14,6 +14,7 @@ type Spot struct {
 	Busy, Total      float64
 	CPUs             int
 	MemTotal, MemAvl uint64
+	Load1            float64 // the kernel's one minute load average
 }
 
 // MemUsed is the memory in use: total less what the kernel says is available.
@@ -36,7 +37,7 @@ func (s *Spot) CPUSince(prev *Spot) (float64, bool) {
 	return clamp((s.Busy-prev.Busy)/dTotal*100, 0, 100), true
 }
 
-const spotScript = `grep '^cpu' /proc/stat; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo`
+const spotScript = `grep '^cpu' /proc/stat; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; cat /proc/loadavg`
 
 // ReadSpot takes one reading over a short colima ssh session.
 func ReadSpot(ctx context.Context, bin, profile string) (*Spot, error) {
@@ -49,5 +50,5 @@ func ReadSpot(ctx context.Context, bin, profile string) (*Spot, error) {
 
 func parseSpot(out string) *Spot {
 	g := parseGuest(strings.Split(out, "\n"))
-	return &Spot{T: g.t, Busy: g.busy, Total: g.total, CPUs: g.cpus, MemTotal: g.memTotal, MemAvl: g.memAvl}
+	return &Spot{T: g.t, Busy: g.busy, Total: g.total, CPUs: g.cpus, MemTotal: g.memTotal, MemAvl: g.memAvl, Load1: g.load1}
 }

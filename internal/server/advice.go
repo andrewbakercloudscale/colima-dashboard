@@ -244,6 +244,11 @@ func (s *Server) vmSpotUse(ctx context.Context, p string, now time.Time) *vmUse 
 	switch {
 	case prev == nil || age > spotKeep:
 		s.advice.spots[p] = cur
+		// No earlier reading to average from yet: the kernel's one minute load average stands
+		// in, but only when it says every CPU is busy (a CPU-bound load reads the same both ways).
+		if cpus := float64(cur.CPUs); cpus > 0 && cur.Load1 >= 0.85*cpus {
+			v.cpuPct, v.window = min(100, cur.Load1/cpus*100), time.Minute
+		}
 	case age >= advice.MinWindow:
 		if pct, ok := cur.CPUSince(prev); ok {
 			v.cpuPct, v.window = pct, age

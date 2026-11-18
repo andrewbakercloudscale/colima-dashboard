@@ -89,6 +89,7 @@ type Server struct {
 	fwds       *forwards
 	details    detailCache // container inspect summaries for the list
 	advice     adviceCache // Fix recommendations, 30 seconds
+	errs       errCache    // the Errors page, 10 seconds
 	prom       promState
 }
 

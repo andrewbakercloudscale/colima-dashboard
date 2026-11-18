@@ -58,6 +58,7 @@ p('Before the numbers, here is what you actually get. Every screenshot below is 
 
 h3('Step 1: Start Colima from the General page');
 p('The first page shows your profile as a card: its state, CPUs, memory, disk, runtime and VM type, with Start, Stop and Restart. Underneath sits a short list of things to fix, and any updates for Colima or the dashboard. Press <strong>Start</strong> and the card goes green in about 11 seconds.');
+p('The things to fix list is the point of the page: you should never have to go looking for trouble. It gathers failed checks, containers that ran out of memory, containers at their CPU or memory limit, a VM that is short of CPU or memory, and errors in your logs, each with a button that fixes it or shows exactly what to change. Container limits apply in one click after a confirmation; VM changes open Preferences already filled in, because they restart the VM.');
 img('general.png', 'General: the profile at a glance, what needs fixing, and updates');
 
 h3('Step 2: Run your stack and see it in Containers');
@@ -70,6 +71,8 @@ img('monitor-hero.png', 'Monitor: CPU and memory gauges, 1, 15 and 60 minute ave
 p('Below it, every graph splits the load by container, so the noisy one is obvious. The donut is right now; the stacked charts are the last 5 minutes to an hour. Test runs started with <code>docker compose run</code> are folded into their service rather than cluttering the legend with a new name per run. Hover any chart for exact values.');
 img('monitor-containers.png', 'Who is using the CPU and memory: right now, and over the last 15 minutes, by container');
 img('monitor-io.png', 'Network, disk I/O, and the Mac CPU and memory the VM really uses, as Activity Monitor counts it');
+p('Two cards sit above the graphs. <strong>Recommendations</strong> turns what Monitor sees into changes with real numbers: "the kernel stopped this container at its 64 MiB limit, give it 128 MiB", or "the VM\'s 2 CPUs averaged 100% for a minute, give it 4", with Apply buttons. <strong>Why is it slow?</strong> answers the question for the whole Mac, not just the VM: how busy the Mac is, how much of that is the kernel, how many new processes start each second, and the apps using the most CPU over the last minutes, with the Colima VM marked. When your laptop fans spin up, this tells you in one glance whether to blame Colima or Chrome.');
+img('monitor-why.png', 'Recommendations with Apply buttons, and Why is it slow? for the whole Mac');
 
 h3('Step 4: Drill into one container');
 p('Inspect on any container opens a drawer with live sparklines for CPU, memory, network and disk, updated every 2 seconds, plus its running processes, its full configuration and its environment.');
@@ -82,21 +85,40 @@ h3('Step 5: See how your tests are doing');
 p('Every container that runs and exits is recorded, so test suites run in containers get a history for free, with nothing to install in your project. Runs and tests shows the pass rate, median and slowest 10% for each service, a trend bar per run, and flags for <strong>flaky</strong> tests (passing and failing on the same code), tests getting <strong>slower</strong>, and anything killed for running <strong>out of memory</strong>. In the demo, the integration suite fails about one run in four and is flagged flaky; the load test hits its 24 MB limit and is flagged out of memory.');
 img('runs.png', 'Runs and tests: pass rates, timings, trends and flaky, slower and out of memory flags');
 
+p('A test killed for memory gets a <strong>Fix</strong> button right on its row: it shows the limit it ran with, the memory it reached and a recommended limit, and for a Compose service, the line to put in your compose file.');
+
 h3('Step 6: Keep an eye on your builds');
 p('Builds reads BuildKit\'s own history: every image build, how long it took, how many steps came from cache, and, when one fails, the step and the error, without digging through terminal scrollback. Each image gets a trend, and a build that has become noticeably slower than its usual is flagged.');
 img('builds.png', 'Builds: time, cache hits, trend and the exact error for a failed build');
 
 h3('Step 7: Look back over days, not minutes');
+p('<strong>Report</strong> turns that history into one page you can download as Markdown or save as a PDF: runs per day split into passed, failed and out of memory; the pass rate for tests and builds; errors per day; why things failed, with exit codes explained in plain English; test and build durations with slowdowns flagged; the jobs causing the most trouble; CPU, memory and disk trends; and an Out of date card for old images, <code>:latest</code> tags, dangling images and tools that are behind.');
+img('report.png', 'Report: runs, pass rate, errors, speed changes, resources and what is out of date, over 1, 7 or 30 days');
 p('Monitor also keeps 30 days of history on your Mac: the Mac CPU and memory the VM used, its disk on your Mac, Docker\'s disk use and the number of running containers, and, once it has a day of history, a forecast of when the VM disk fills up. Switch between 1 day, 7 days and 30 days at the top. It samples every 5 minutes while the dashboard runs, with the page open or not, and nothing leaves your Mac.');
 
-h3('Step 8: When something goes wrong, press Fix');
-p('Diagnostics runs 14 checks, from the Docker context and the credential helper to stale Rancher Desktop files and company proxy certificates. Each problem has a Fix button that opens Terminal with the exact command, so you can see what it does before it runs. The sidebar badge counts open problems, and failing tests, builds and out of memory kills also arrive as macOS notifications and in the optional menu bar icon.');
+h3('Step 8: Every error, from every container and pod, on one page');
+p('The <strong>Errors</strong> page reads the logs of every container and every Kubernetes pod and keeps only the error and warning lines, newest first. It understands the usual formats: <code>level=error</code>, JSON <code>"level":"error"</code>, nginx <code>[error]</code>, Kubernetes <code>E1118</code> lines, Python tracebacks, panics and out of memory kills, and it ignores lines like "0 errors". A chart shows when they happened, a table shows who logged them, and one click narrows the list to one source or opens its full log. Pick 15 minutes, an hour, 6 hours or a day. The sidebar badge counts errors from the last 15 minutes, and General lists them under things to fix, so you see them without opening the page.');
+img('errors.png', 'Errors: error and warning lines from every container and pod, when they happened and who logged them');
+
+h3('Step 9: When something goes wrong, press Fix');
+p('Diagnostics runs about 15 checks, from the Docker context and the credential helper to kubectl, stale Rancher Desktop files and company proxy certificates. A missing tool such as kubectl, buildx or Compose has an <strong>Install</strong> button that runs Homebrew for you and shows its progress. Every other problem has a Fix button that opens Terminal with the exact command, so you can see what it does before it runs. The sidebar badge counts open problems, and failing tests, builds and out of memory kills also arrive as macOS notifications and in the optional menu bar icon.');
 img('diagnostics.png', 'Diagnostics: each problem found, with its fix one click away');
 
-h3('Step 9: Kubernetes and snapshots, when you need them');
-p('Kubernetes is off until you want it. Then one switch turns on k3s, a picker chooses the version, and the page lists your workloads with their logs. Snapshots save a stopped profile in about a second as an APFS clone, so you can try something risky and roll back.');
+h3('Step 10: Kubernetes and snapshots, when you need them');
+p('Kubernetes is off until you want it. Then one switch turns on k3s and a picker chooses the version. The Kubernetes page is a small console: pods with their requests, limits and live use; the usual configuration problems (no limits, out of memory, CPU throttled, pending, missing probes, <code>:latest</code> images), each with a Fix that shows now and recommended side by side; events and warnings; Deployments, StatefulSets and DaemonSets with scale, restart and roll back; YAML you can view, edit and apply with a dry run first; a shell into any pod; and port forwards to your Mac. Snapshots save a stopped profile in about a second as an APFS clone, so you can try something risky and roll back.');
 img('kubernetes.png', 'Kubernetes: version, Traefik, workloads and reset');
 img('snapshots-bench.png', 'Snapshots: save and restore a whole profile in seconds');
+
+h3('Step 11: Prove it with stress-ng');
+p(`The repository has a set of <a href="${REPO}/tree/main/examples/stress-ng">stress-ng scenarios in containers</a> that each break something on purpose. Run <code>./run.sh</code> in that folder and open General: within a minute everything appears there by itself, with no searching.`);
+ul([
+  '<strong>cpu-hog</strong> runs every VM CPU at 100% for 5 minutes: "High CPU in the VM, 2 CPUs 100% busy on average over 60 seconds", with a button to set 4 CPUs.',
+  '<strong>oom-test</strong> asks for 256 MB inside a 64 MB limit and is killed by the kernel: "ran out of memory, stopped at its 64 MiB memory limit", with Apply recommendation (128 MiB).',
+  '<strong>perf-check</strong> is a performance test that fails its target and prints an ERROR line: it shows as a failed run and on the Errors page.',
+  '<strong>noisy-logger</strong> logs an error and a warning every few seconds: "25 errors in logs, last 15 minutes", with Show errors.',
+  '<strong>io-hog</strong> writes to disk hard: the Monitor disk chart names it.',
+]);
+img('stress-general.png', 'General after ./run.sh: every problem the stress tests caused, each with its fix');
 hr();
 
 h2('3. Why I Moved Off Rancher Desktop');
@@ -163,7 +185,7 @@ h2('6. What You Lose When You Leave Rancher Desktop');
 p('Switching is mostly painless, but Rancher Desktop quietly did a few jobs that you only notice when they stop happening. I uninstalled it again while writing this, and every one of these happened:');
 ul([
   '<strong>Docker stops working.</strong> Uninstalling removes <code>/var/run/docker.sock</code>, and Docker\'s current context can be left pointing at it. Every command fails until you run <code>docker context use colima</code>.',
-  '<strong>kubectl, helm and buildx disappear.</strong> They lived in <code>~/.rd/bin</code>, which the uninstall empties. Install them from Homebrew.',
+  '<strong>kubectl, helm and buildx disappear.</strong> They lived in <code>~/.rd/bin</code>, which the uninstall empties. Install them from Homebrew. Without kubectl, Colima even reports Kubernetes as off and refuses to start a k3s profile.',
   '<strong>Image pulls fail with a confusing error.</strong> Rancher Desktop sets <code>"credsStore": "osxkeychain"</code> in <code>~/.docker/config.json</code> and ships the helper that goes with it. Remove the app and the setting can stay while the helper goes. The fix is <code>brew install docker-credential-helper</code>.',
   '<strong>Pulls fail behind a company proxy.</strong> Rancher Desktop copies your Mac\'s certificate authorities into its VM. Colima does not, so behind Zscaler or similar every pull fails with <code>x509: certificate signed by unknown authority</code>.',
   '<strong>Your PATH still points at Rancher.</strong> The <code>~/.rd/bin</code> lines stay in your shell profiles; on my Mac, three of them.',
@@ -180,14 +202,18 @@ ul([
   '<strong>A shell and a file browser</strong> for any running container, in the page. Volumes can be browsed too, even when no container uses them.',
   '<strong>Live stats</strong> per container: CPU, memory, network and disk I/O, and its processes.',
   '<strong>Images:</strong> pull, build from a folder on your Mac, push, and scan with Trivy.',
-  '<strong>Kubernetes:</strong> on or off, a k3s version picker, Traefik on or off, workloads with their logs, and reset.',
+  '<strong>Kubernetes:</strong> on or off, a k3s version picker, Traefik on or off, and a console: pods with live use and fixes, events, scale, restart and roll back, YAML editing with a dry run, pod shells and port forwards.',
   '<strong>Snapshots:</strong> save a stopped profile and roll back to it. They are APFS clones, so saving takes a second and uses almost no disk.',
   '<strong>A menu bar icon</strong> with each profile\'s state and start and stop, and notifications.',
   '<strong>Preferences:</strong> CPUs, memory, disk, runtime, VM type, mounts, Rosetta, profiles, start at login and a dark theme.',
 ]);
 h3('Things Rancher Desktop never had');
 ul([
-  '<strong>Diagnostics with a fix button for every problem in section 6.</strong> Press it and Terminal opens running the exact command, so you see what it does. Anything that deletes or edits a file asks first and keeps a backup. The company proxy one copies your Mac\'s certificates into the VM in one click.',
+  '<strong>Things to fix on the first page:</strong> out of memory kills, containers at their limits, a VM short of CPU or memory, and log errors, each with a recommendation in real numbers and a button to apply it.',
+  '<strong>Errors:</strong> error and warning lines from every container and pod in one list, with when and who.',
+  '<strong>Report:</strong> runs, pass rate, errors, speed changes, resources and what is out of date over 1, 7 or 30 days, as Markdown or PDF.',
+  '<strong>Why is it slow?</strong> What the whole Mac is busy with, with the Colima VM marked.',
+  '<strong>Diagnostics with a fix button for every problem in section 6.</strong> Missing tools install with one click. For the rest, Terminal opens running the exact command, so you see what it does. Anything that deletes or edits a file asks first and keeps a backup. The company proxy one copies your Mac\'s certificates into the VM in one click.',
   '<strong>Runs and tests:</strong> every container that ran, how long it took and how it ended, with pass rates and the tests that are getting slower or flaky.',
   '<strong>Builds:</strong> build times, cache hit rates and why a build failed, over 30 days.',
   '<strong>Monitor:</strong> live graphs for the VM and each container, plus 30 days of history and a forecast of when the disk fills up.',

@@ -48,7 +48,8 @@ function fixSlot(match, opts = {}) {
 function fillSlot(span) {
   const is = findAdvice(span._match);
   if (!is) { span.replaceChildren(); return; }
-  span.replaceChildren(span._opts.render ? span._opts.render(is) : fixButton(is, span._opts));
+  const node = span._opts.render ? span._opts.render(is) : fixButton(is, span._opts);
+  span.replaceChildren(...(node ? [node] : [])); // a render that has nothing to show must not print "null"
 }
 function fillFixSlots() { for (const s of document.querySelectorAll(".fix-slot")) fillSlot(s); }
 

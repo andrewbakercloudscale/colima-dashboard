@@ -1,0 +1,67 @@
+# stress-ng scenarios that each make Colima Dashboard raise something on its own, with nothing
+# to search for. Run all of them with ./run.sh, or one at a time:
+#
+#   docker compose up -d cpu-hog          # High CPU in the VM: General, Monitor, Why is it slow
+#   docker compose run oom-test      # out of memory: General, Runs and tests, a macOS alert
+#   docker compose run perf-check    # a failing test with ERROR lines: Runs and tests, Errors
+#   docker compose up -d io-hog           # disk I/O: Monitor
+#   docker compose up -d noisy-logger     # errors and warnings in its log: Errors
+#
+# Stop everything with: docker compose --profile all down
+name: stress
+
+x-stress: &stress
+  build: .
+  image: colima-dashboard/stress-ng:demo
+  init: true
+
+services:
+  cpu-hog:
+    <<: *stress
+    profiles: [all, cpu]
+    # every VM CPU at 100% for 5 minutes, then it stops by itself
+    command: ["--cpu", "0", "--cpu-load", "100", "--timeout", "300s", "--metrics-brief"]
+
+  oom-test:
+    <<: *stress
+    profiles: [all, oom]
+    mem_limit: 64m
+    memswap_limit: 64m
+    # asks for 256 MB inside a 64 MB limit; --oomable stops it restarting after the kernel kills it
+    command: ["--vm", "1", "--vm-bytes", "256M", "--vm-keep", "--oomable", "--timeout", "60s"]
+
+  perf-check:
+    <<: *stress
+    profiles: [all, test]
+    entrypoint: ["sh", "-c"]
+    # a "performance test" that fails: it wants more bogo ops a second than one CPU gives
+    command:
+      - |
+        stress-ng --cpu 1 --timeout 15s --metrics-brief 2>&1 | tee /tmp/out
+        rate=$$(awk '/metrc:.* cpu /{print int($$9)}' /tmp/out | tail -1)
+        echo "perf-check: cpu bogo ops/s = $${rate:-0}, want >= 1000"
+        if [ "$${rate:-0}" -lt 1000 ]; then
+          echo "ERROR: perf-check failed: CPU throughput $${rate:-0} is below the 1000 target" >&2
+          exit 1
+        fi
+
+  io-hog:
+    <<: *stress
+    profiles: [all, io]
+    command: ["--hdd", "2", "--hdd-bytes", "256M", "--timeout", "300s", "--metrics-brief"]
+
+  noisy-logger:
+    <<: *stress
+    profiles: [all, logs]
+    entrypoint: ["sh", "-c"]
+    # stands in for a service that logs errors: one error and one warning every few seconds
+    command:
+      - |
+        i=0
+        while [ $$i -lt 100 ]; do
+          i=$$((i+1))
+          echo "level=info msg=\"request handled\" n=$$i"
+          echo "level=warn msg=\"slow upstream\" upstream=payments latency_ms=$$((1500 + i))"
+          echo "level=error msg=\"payment failed\" err=\"connection refused\" order=$$((9000 + i))" >&2
+          stress-ng --cpu 1 --timeout 3s --quiet
+        done
