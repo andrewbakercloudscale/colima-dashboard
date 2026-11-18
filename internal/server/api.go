@@ -86,6 +86,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/profiles/{p}/images/scan", s.auth(s.apiScan))
 	m.HandleFunc("POST /api/profiles/{p}/images/build", s.auth(s.apiBuild))
 	m.HandleFunc("POST /api/profiles/{p}/images/push", s.auth(s.apiPush))
+	m.HandleFunc("GET /api/profiles/{p}/images/bloat", s.auth(s.apiImagesBloat))
+	m.HandleFunc("GET /api/profiles/{p}/images/{id}/bloat", s.auth(s.apiImageBloat))
 	m.HandleFunc("DELETE /api/profiles/{p}/images/{id}", s.auth(s.apiRemoveImage))
 
 	m.HandleFunc("POST /api/profiles/{p}/certs", s.auth(s.apiCerts))

@@ -45,6 +45,9 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
   files; volumes can be browsed too, even with no container using them.
 - Live stats per container (CPU, memory, network and disk I/O, processes).
 - Build an image from a folder on your Mac, push it, or scan it with Trivy.
+- Image bloat: a grade for every image, where the space goes (layers, folders, biggest files),
+  what wastes it (build tools with no multi-stage build, package caches, deleted files that still
+  ship, chown copies, .git, archives) and a suggested multi-stage Dockerfile and .dockerignore.
 - Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history.
 - Runs and tests and Builds: pass rates, flaky and slowing tests, build times and cache hits.
 - Things to fix on the first page: out of memory kills, containers at their limits, a VM short of
