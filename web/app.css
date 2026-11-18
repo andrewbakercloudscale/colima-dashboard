@@ -1028,3 +1028,25 @@ table.diag td:first-child { width: 64px; }
 table.diag td.actions { width: 76px; }
 table.diag .copy { flex-wrap: wrap; }
 table.diag .copy code { overflow-wrap: anywhere; white-space: normal; min-width: 0; }
+
+/* Errors page */
+.err-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.err-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); border-left: 4px solid var(--ok); }
+.err-tile.bad { border-left-color: var(--bad); } .err-tile.warn { border-left-color: var(--warn); }
+.err-tile-v { font-size: 26px; font-weight: 800; line-height: 1.1; }
+.err-tile.bad .err-tile-v { color: var(--bad); } .err-tile.warn .err-tile-v { color: var(--warn); }
+.err-n { color: var(--bad); }
+.pill.err-kind { background: color-mix(in srgb, var(--accent, #0f766e) 14%, transparent); color: inherit; }
+.pill.err-kind.pod { background: color-mix(in srgb, #1d4ed8 16%, transparent); }
+.err-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.err-tools input { min-width: 0; width: 220px; max-width: 100%; }
+.err-log { max-height: 560px; overflow: auto; margin: 0; border-radius: 0 0 14px 14px; }
+.err-log .lg { white-space: pre-wrap; word-break: break-word; }
+.err-src { display: inline-block; min-width: 14ch; font-weight: 700; color: #7cc0ff; }
+tr.on td { background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.err-who { overflow-x: auto; }
+@media (max-width: 700px) {
+  .err-who th:nth-child(3), .err-who td:nth-child(3), .err-who th:nth-child(4), .err-who td:nth-child(4) { display: none; }
+  .err-who td.actions { white-space: normal; }
+  .err-who td.actions button { margin: 2px 0; }
+}

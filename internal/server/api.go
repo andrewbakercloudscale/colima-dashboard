@@ -35,6 +35,7 @@ func (s *Server) routes() {
 	s.k8sRoutes(m)
 	s.historyRoutes(m)
 	s.promRoutes(m)
+	s.errorRoutes(m)
 	m.HandleFunc("GET /api/profiles/{p}/support-bundle", s.auth(s.apiSupportBundle))
 
 	m.HandleFunc("GET /api/profiles/{p}/status", s.auth(s.apiStatus))

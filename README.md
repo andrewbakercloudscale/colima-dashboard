@@ -47,19 +47,28 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Build an image from a folder on your Mac, push it, or scan it with Trivy.
 - Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history.
 - Runs and tests and Builds: pass rates, flaky and slowing tests, build times and cache hits.
+- Things to fix on the first page: out of memory kills, containers at their limits, a VM short of
+  CPU or memory and recent log errors, each with a recommendation and a button to apply it.
+- Errors: error and warning lines from every container and Kubernetes pod in one list.
+- Report: runs, pass rate, errors, speed changes, resources and what is out of date, as
+  Markdown or PDF.
 - Kubernetes: on or off, k3s version picker, Traefik on or off, workloads with logs, reset.
 - Snapshots: save a stopped profile in a second (APFS clones) and roll back to it.
 - A menu bar icon with each profile's state, start and stop, and notifications when a test
   container or a build fails.
 - Preferences for CPU, memory, disk, runtime, VM type, mount type, Rosetta and new profiles.
 - Diagnostics that find the usual Colima problems (missing buildx or credential helper, a
-  Rancher Desktop or Docker Desktop still installed, low disk), each with a button that runs
-  the fix in Terminal. Checks you do not care about can be muted.
+  Rancher Desktop or Docker Desktop still installed, low disk), each with a button: missing
+  tools such as kubectl install in place, the rest run in Terminal. Checks you do not care about can be muted.
 - Behind a company proxy that inspects TLS (Zscaler and the like), one click copies your Mac's
   certificate authorities into the VM, so pulls stop failing with x509 errors.
 - Start at login, and a light, dark or automatic theme.
 - Colour-coded VM, container and job logs.
 - Update checks for Colima and for the dashboard, which updates itself.
+
+To see it catch problems by itself, run the stress-ng scenarios in
+[examples/stress-ng](examples/stress-ng): a CPU hog, an out of memory test, a failing performance
+test and a noisy logger, each of which shows up on the General page within a minute.
 
 **When to stay on Rancher Desktop:** you need Windows or Linux, Docker Desktop extensions, or
 settings your IT team locks down centrally.
@@ -112,8 +121,8 @@ Screens: General, Monitor (live graphs per VM and per container, plus 1, 7 and 3
 with a forecast of when the VM disk fills), Containers (with a shell and a file browser), Runs
 and tests (every container run: pass rate, median and slowest times, flaky and slowing tests, out
 of memory kills), Builds (build times and cache hit rate per image), Images, Volumes, Port
-Forwarding, Kubernetes (version, Traefik, workloads and logs), Snapshots, Troubleshooting,
-Diagnostics and Preferences (including alerts and the menu bar icon).
+Forwarding, Kubernetes (version, Traefik, workloads and logs), Snapshots, Errors, Report,
+Troubleshooting, Diagnostics and Preferences (including alerts and the menu bar icon).
 
 - Runs at `http://colima.localhost:7766` (or `http://127.0.0.1:7766`), on this Mac only.
 - One Go binary with the page built in; no Electron, no Node, no runtime to install.
