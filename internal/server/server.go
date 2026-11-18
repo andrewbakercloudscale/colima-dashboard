@@ -33,8 +33,12 @@ import (
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/update"
 )
 
-// CookieName holds the session token in the browser.
+// CookieName holds the session token in the browser. Browsers share cookies across every port
+// on 127.0.0.1, so the page sets cookieName(port) instead: another copy on another port cannot
+// overwrite it and sign this one out. The bare name is still accepted (the menu bar app sends it).
 const CookieName = "colima_dashboard_session"
+
+func cookieName(port int) string { return CookieName + "_" + strconv.Itoa(port) }
 
 // Options configure a Server.
 type Options struct {
@@ -164,8 +168,13 @@ func (s *Server) tokenOK(t string) bool {
 }
 
 func (s *Server) authed(r *http.Request) bool {
-	c, err := r.Cookie(CookieName)
-	return err == nil && s.tokenOK(c.Value)
+	mine := cookieName(s.opt.Port)
+	for _, c := range r.Cookies() {
+		if (c.Name == mine || c.Name == CookieName) && s.tokenOK(c.Value) {
+			return true
+		}
+	}
+	return false
 }
 
 // auth wraps API handlers: no session cookie, no access.
@@ -192,7 +201,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
-			Name: CookieName, Value: s.opt.Token, Path: "/",
+			Name: cookieName(s.opt.Port), Value: s.opt.Token, Path: "/",
 			HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		})
 		// Drop the token from the address bar and history.

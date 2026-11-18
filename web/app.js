@@ -159,6 +159,7 @@ function copyBtn(cmd) {
 // from the check id); start and restart use the page's own progress view.
 function fixRow(c) {
   if (!c.fix) return null;
+  if (c.action === "install") return installRow(c);
   const label = c.action === "start" ? `Start ${state.profile}` : c.action === "restart" ? `Restart ${state.profile}` : c.action === "certs" ? "Copy certificates" : "Run in Terminal";
   const run = el(c.confirm ? "button.danger.mini" : "button.mini", { type: "button" }, label);
   run.addEventListener("click", async () => {
@@ -170,6 +171,17 @@ function fixRow(c) {
     await openFix(run, c.id);
   });
   if (c.action === "certs") return el("div.copy", el("span.small", c.fix), run);
+  return el("div.copy", el("code", c.fix), run, copyBtn(c.fix));
+}
+
+// installRow is a fix that installs a Homebrew formula in place, with progress, no Terminal.
+function installRow(c) {
+  const formula = c.fix.replace(/^brew install /, "");
+  const run = el("button.mini", { type: "button" }, "Install");
+  run.addEventListener("click", () => {
+    run.disabled = true;
+    runJob("POST", "/api/install", { formula }, () => { state.fixPending = false; render(); });
+  });
   return el("div.copy", el("code", c.fix), run, copyBtn(c.fix));
 }
 
@@ -1355,7 +1367,8 @@ async function renderTroubleshooting(main) {
     el("button.ghost", { type: "button", onclick: () => showVMLogs() }, "Show logs"));
   const cards = [logs, supportBundleCard()];
   const st = currentProfile();
-  if (isRunning() && st?.kubernetes) {
+  // colima reports kubernetes off when kubectl is missing on the Mac; the runtime still says k3s.
+  if (isRunning() && (st?.kubernetes || /k3s/.test(st?.runtime || ""))) {
     cards.push(el("div.card", el("h2", "Reset Kubernetes"),
       el("p.muted", "Deletes the k3s cluster and creates an empty one. Workloads and Kubernetes data go; containers, images and volumes outside Kubernetes stay."),
       el("button.ghost", { type: "button", onclick: resetKubernetes }, "Reset Kubernetes…")));
