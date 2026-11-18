@@ -463,7 +463,8 @@ async function renderGeneral(main) {
 async function renderContainers(main) {
   const head = el("div.head",
     el("div", el("h1", "Containers"), el("p.muted", "Running and stopped containers, grouped by Compose project.")),
-    el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: state.route?.params.q ?? safeGet("cfilter") ?? "" })));
+    el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: state.route?.params.q ?? safeGet("cfilter") ?? "" }),
+      exportMenu("containers", () => containerExportRows(list))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, body);
@@ -915,13 +916,16 @@ async function renderImages(main) {
   };
   pull.addEventListener("click", doPull);
   ref.addEventListener("keydown", (e) => { if (e.key === "Enter") doPull(); });
+  let imgs = [];
+  const imageRows = () => imgs.map((i) => ({ id: i.Id, tags: (i.RepoTags || []).filter((t) => t !== "<none>:<none>").join(" "),
+    digests: (i.RepoDigests || []).join(" "), size_bytes: i.Size, created: new Date(i.Created * 1000).toISOString(), containers: i.Containers }));
   const head = el("div.head",
     el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, scan, remove and prune images.")),
-    el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused")));
+    el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused"), exportMenu("images", imageRows)));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, buildCard(), body);
-  const imgs = await api("GET", `${P()}/images`);
+  imgs = await api("GET", `${P()}/images`);
   if (!imgs.length) { body.replaceChildren(el("p.empty", "No images yet.")); return; }
   const items = imgs.map((i) => {
     const tags = (i.RepoTags || []).filter((t) => t !== "<none>:<none>");
@@ -1041,13 +1045,16 @@ function scanImage(ref) {
 // ---------- Volumes ----------
 
 async function renderVolumes(main) {
+  let vols = [];
   const head = el("div.head",
     el("div", el("h1", "Volumes"), el("p.muted", "Named and anonymous volumes, their size and who uses them.")),
-    el("div.toolbar", el("button.ghost", { type: "button", onclick: pruneVolumes }, "Prune unused")));
+    el("div.toolbar", el("button.ghost", { type: "button", onclick: pruneVolumes }, "Prune unused"),
+      exportMenu("volumes", () => vols.map((v) => ({ name: v.Name, driver: v.Driver, size_bytes: v.UsageData ? v.UsageData.Size : "",
+        ref_count: v.UsageData ? v.UsageData.RefCount : "", used_by: v.usedBy.join(" "), created: v.CreatedAt || "", mountpoint: v.Mountpoint || "" })))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
   main.replaceChildren(head, body);
-  const vols = await api("GET", `${P()}/volumes`);
+  vols = await api("GET", `${P()}/volumes`);
   if (!vols.length) { body.replaceChildren(el("p.empty", "No volumes.")); return; }
   body.replaceChildren(el("table",
     el("thead", el("tr", ["Name", "Size", "Used by", "Created", ""].map((h) => el("th", h)))),
@@ -1315,7 +1322,7 @@ async function renderPreferences(main) {
     runJob("POST", `/api/profiles/${encodeURIComponent(n)}/actions/start`, {}, () => { state.profile = n; safeSet("profile", n); refreshOverview().then(render); });
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
-  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(),
+  main.replaceChildren(head, form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(), prometheusCard(),
     el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
 }
 
@@ -1409,7 +1416,7 @@ async function renderTroubleshooting(main) {
   const logs = el("div.card", el("h2", "Logs"),
     el("p.muted", "Colima's and the VM's own log files: start-up, the host agent and the VM console."),
     el("button.ghost", { type: "button", onclick: () => showVMLogs() }, "Show logs"));
-  const cards = [logs];
+  const cards = [logs, supportBundleCard()];
   const st = currentProfile();
   if (isRunning() && st?.kubernetes) {
     cards.push(el("div.card", el("h2", "Reset Kubernetes"),
@@ -1437,7 +1444,7 @@ async function renderDiagnostics(main) {
     el("div", el("h1", "Diagnostics"), el("p.muted", "Checks for the usual Colima problems, each with its fix.")),
     el("div.toolbar", el("button.ghost", { type: "button", onclick: () => render() }, "Run again")));
   const checks = el("div.card", el("p.muted", "Checking…"));
-  main.replaceChildren(head, checks);
+  main.replaceChildren(head, checks, supportBundleCard());
   const list = await api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`);
   setDiagBadge(list);
   const showMuted = el("input", { type: "checkbox", checked: safeGet("showMuted") === "1" });
@@ -1593,6 +1600,7 @@ const NAV_ICONS = {
   runs: ["#15803d", "M4 6h9M4 12h9M4 18h5M14 16l3 3 5-6"],
   snapshots: ["#0369a1", "M4 7h3l2-3h6l2 3h3v12H4zM12 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"],
   builds: ["#9333ea", "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"],
+  report: ["#4338ca", "M6 3h9l4 4v14H6zM14 3v5h5M9 17v-3M12 17v-6M15 17v-4"],
 };
 function decorateNav() {
   for (const a of document.querySelectorAll("#nav a")) {
@@ -1995,12 +2003,12 @@ async function renderMonitor(main) {
   }
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div", { id: "monitor" });
-  body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart"); });
+  body.addEventListener("pointerover", (e) => { metrics.hovering = !!e.target.closest(".tchart, .xmenu"); });
   body.addEventListener("pointerleave", () => { metrics.hovering = false; });
   main.replaceChildren(head, body);
   const tick = async () => {
     try { await pollMetrics(); } catch (e) { metrics.error = e.message; }
-    if (!metrics.hovering && document.body.contains(body)) drawMonitor(true);
+    if (!metrics.hovering && !body.querySelector("details.xmenu[open]") && document.body.contains(body)) drawMonitor(true);
   };
   await tick();
   setTimer(tick, 2000);
@@ -2078,13 +2086,17 @@ function drawMonitor(dataOnly) {
   const sysNow = Math.max(0, g.cpu - nowSegs.reduce((a, s) => a + s.value, 0));
   nowSegs.push({ label: "VM and system", value: sysNow, color: "var(--series-system)" });
   const rightNow = el("div.card.viz",
-    el("div.viz-head", el("h2", "Right now"), el("span.muted.small", "% of the VM's CPU")),
+    el("div.viz-head", el("h2", "Right now"), el("span.viz-tools", el("span.muted.small", "% of the VM's CPU"),
+      exportMenu("cpu-now", () => nowSegs.map((s) => ({ time: new Date(last.t).toISOString(), group: s.label, cpu_pct: s.value }))))),
     el("div.donut-wrap", Charts.donut(nowSegs, 168, [pct(g.cpu), "busy"]),
       el("div.donut-legend", nowSegs.map((s) => { const sw = el("span.sw"); sw.style.background = s.color; return el("div.dl-row", sw, el("span.dl-name", s.label), el("span.dl-val", pct(s.value))); }))));
 
-  const chart = (title, note, opts) => el("div.card.viz", el("div.viz-head", el("h2", title), note ? el("span.muted.small", note) : null), Charts.timeChart({ times, domain: [last.t - RANGES[range], last.t], ...opts }));
+  const chart = (title, note, opts) => el("div.card.viz",
+    el("div.viz-head", el("h2", title), el("span.viz-tools", note ? el("span.muted.small", note) : null,
+      exportMenu(`${opts.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${range}`, () => seriesRows(times, opts.series)))),
+    Charts.timeChart({ times, domain: [last.t - RANGES[range], last.t], ...opts }));
   const cpuArea = chart(range === "1h" ? "Last hour, by container" : `Last ${range === "15m" ? "15 minutes" : "5 minutes"}, by container`, "% of the VM's CPU",
-    { series: byContainer((c) => c.cpu, (s) => s.guest?.cpu ?? null), stacked: true, yMax: 100, fmt: (v) => `${v.toFixed(v < 10 ? 1 : 0)}%` });
+    { slug: "cpu-by-container", series: byContainer((c) => c.cpu, (s) => s.guest?.cpu ?? null), stacked: true, yMax: 100, fmt: (v) => `${v.toFixed(v < 10 ? 1 : 0)}%` });
   const memArea = chart("Memory, by container", "inside the VM",
     { series: byContainer((c) => c.memory, (s) => s.guest?.memUsed ?? null), stacked: true, fmt: bytes });
   const net = chart("Network", "VM to the outside world", {
@@ -2113,7 +2125,10 @@ function drawMonitor(dataOnly) {
       el("td.mono.small", `↓ ${rate(c.netRx)}`, el("br"), `↑ ${rate(c.netTx)}`),
       el("td.mono.small", `r ${rate(c.diskRead)}`, el("br"), `w ${rate(c.diskWrite)}`));
   });
-  const table = el("div.card.viz", el("div.viz-head", el("h2", "Containers"), el("span.muted.small", "CPU as % of the VM; the line shows the selected range")),
+  const containerRows = () => win.flatMap((s) => Object.entries(s.containers || {}).map(([id, c]) => ({
+    time: new Date(s.t).toISOString(), container: cname(id), image: metrics.images[id] || "", cpu_pct: c.cpu, memory_bytes: c.memory,
+    net_rx_bps: c.netRx, net_tx_bps: c.netTx, disk_read_bps: c.diskRead, disk_write_bps: c.diskWrite })));
+  const table = el("div.card.viz", el("div.viz-head", el("h2", "Containers"), el("span.viz-tools", el("span.muted.small", "CPU as % of the VM; the line shows the selected range"), exportMenu("container-samples", containerRows))),
     rows.length ? el("div.table-wrap", el("table",
       el("thead", el("tr", ["Container", "CPU", "Memory", "Network", "Disk"].map((x) => el("th", x)))), el("tbody", rows)))
       : el("p.empty", "No running containers."));
@@ -2172,7 +2187,10 @@ async function renderRuns(main) {
     stat(String(flaky.length), "flaky", "passed and failed in the last 10 runs", flaky.length ? "warn" : ""),
     stat(String(slow.length), "slower", "last 5 runs 20% or more slower than before", slow.length ? "warn" : ""));
   const legend = el("div.legend.small", ["pass", "fail", "oom", "stopped"].map((o) => { const sw = el("span.sw"); sw.style.background = Charts.OUTCOME_COLORS[o]; return el("span.lgd", sw, o === "oom" ? "out of memory" : o); }));
-  const jobs = el("div.card.viz", el("div.viz-head", el("h2", "By service or image"), legend),
+  const jobRowsFlat = () => d.jobs.map((j) => ({ job: j.job, runs: j.runs, pass: j.pass, fail: j.fail, oom: j.oom, stopped: j.stopped,
+    pass_rate: j.passRate < 0 ? "" : j.passRate, median_s: j.median, p90_s: j.p90, flaky: j.flaky, slower: j.slower,
+    restarts: j.restarts, unhealthy: j.unhealthy, last_outcome: j.last.outcome, last_run: j.last.t }));
+  const jobs = el("div.card.viz", el("div.viz-head", el("h2", "By service or image"), el("span.viz-tools", legend, exportMenu(`run-jobs-${days}d`, jobRowsFlat))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["", "Runs", "Passed", "Median", "Slowest 10%", "Last run", "Trend"].map((x) => el("th", x)))),
       el("tbody", d.jobs.map((j) => el("tr",
@@ -2188,7 +2206,8 @@ async function renderRuns(main) {
         el("td.mono.nowrap", j.passRate < 0 ? "–" : dur(j.p90)),
         el("td", outcomePill(j.last.outcome), el("div.muted.small", `${whenAgo(j.last.t)}, ${dur(j.last.seconds)}`)),
         el("td", Charts.runBars(j.trend, dur))))))));
-  const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.muted.small", `newest first, ${d.total} in all`)),
+  const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.viz-tools", el("span.muted.small", `newest first, ${d.total} in all`),
+    exportMenu(`runs-${days}d`, { url: `${P()}/runs?days=${days}` }))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["When", "Container", "Result", "Exit code", "Took"].map((x) => el("th", x)))),
       shortBody(d.recent.slice(0, 100).map((r) => el("tr",
@@ -2245,7 +2264,9 @@ async function renderBuilds(main) {
     stat(String(failed), "failed", "", failed ? "bad" : ""),
     stat(String(slow.length), "slower", "last 5 builds 20% or more slower than before", slow.length ? "warn" : ""),
     stat(String(d.names.length), "images", "distinct build names")));
-  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "By image"), el("span.muted.small", `${completed} completed`)),
+  const nameRows = () => d.names.map((b) => ({ name: b.name, builds: b.builds, failed: b.failed, median_s: b.median, cache_rate: b.cacheRate,
+    slower: b.slower, last_status: b.last.status, last_build: b.last.t, last_seconds: b.last.seconds }));
+  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "By image"), el("span.viz-tools", el("span.muted.small", `${completed} completed`), exportMenu(`build-images-${days}d`, nameRows))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["", "Builds", "Median", "From cache", "Last build", "Trend"].map((x) => el("th", x)))),
       el("tbody", d.names.map((b) => el("tr",
@@ -2257,7 +2278,8 @@ async function renderBuilds(main) {
         el("td.mono", pctRate(b.cacheRate), el("div.muted.small", "of steps")),
         el("td", outcomePill(b.last.status === "Completed" ? "pass" : "fail"), el("div.muted.small", `${whenAgo(b.last.t)}, ${dur(b.last.seconds)}`)),
         el("td", Charts.runBars(b.trend, dur)))))))));
-  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "Recent builds"), el("span.muted.small", "newest first")),
+  parts.push(el("div.card.viz", el("div.viz-head", el("h2", "Recent builds"), el("span.viz-tools", el("span.muted.small", "newest first"),
+    exportMenu(`builds-${days}d`, { url: `${P()}/builds?days=${days}` }))),
     el("div.table-wrap", el("table",
       el("thead", el("tr", ["When", "Image", "Result", "Steps", "Took"].map((x) => el("th", x)))),
       shortBody(d.recent.slice(0, 100).map((b) => el("tr",
@@ -2283,7 +2305,8 @@ async function drawHistory(body, days) {
   const end = Date.now();
   const domain = [end - days * 86400e3, end];
   const opts = { times, domain, gapMs: 16 * 60e3 };
-  const chart = (title, note, o) => el("div.card.viz", el("div.viz-head", el("h2", title), note ? el("span.muted.small", note) : null), Charts.timeChart({ ...opts, ...o }));
+  const hx = () => exportMenu(`history-${days}d`, { url: `${P()}/history?days=${days}` });
+  const chart = (title, note, o) => el("div.card.viz", el("div.viz-head", el("h2", title), el("span.viz-tools", note ? el("span.muted.small", note) : null, hx())), Charts.timeChart({ ...opts, ...o }));
   const pctFmt = (v) => `${v.toFixed(v < 10 ? 1 : 0)}%`;
   const cards = [];
   const f = d.forecast;
@@ -2305,7 +2328,7 @@ async function drawHistory(body, days) {
   const dtimes = dockerPts.map((p) => Date.parse(p.t));
   cards.push(el("div.viz-grid",
     chart("VM disk on your Mac", "space the VM's disk image takes", { series: [{ name: "On the Mac", color: Charts.seriesColor(2), fill: true, values: pts.map((p) => p.diskMac || null) }], fmt: bytes }),
-    el("div.card.viz", el("div.viz-head", el("h2", "Docker disk use"), el("span.muted.small", "every 15 minutes")),
+    el("div.card.viz", el("div.viz-head", el("h2", "Docker disk use"), el("span.viz-tools", el("span.muted.small", "every 15 minutes"), hx())),
       Charts.timeChart({ times: dtimes, domain, gapMs: 31 * 60e3, stacked: true, fmt: bytes, empty: "Not sampled yet.",
         series: [["Images", "images", 0], ["Build cache", "buildCache", 1], ["Volumes", "volumes", 3], ["Containers", "containers", 4]]
           .map(([name, k, c]) => ({ name, color: Charts.seriesColor(c), values: dockerPts.map((p) => p[k] ?? null) })) }))));
@@ -2318,5 +2341,6 @@ async function drawHistory(body, days) {
 
 tabs.runs = renderRuns;
 tabs.builds = renderBuilds;
+tabs.report = renderReport; // report.js
 
 boot();

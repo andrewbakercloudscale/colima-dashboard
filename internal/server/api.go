@@ -33,6 +33,8 @@ func (s *Server) routes() {
 	s.updateRoutes(m)
 	s.terminalRoutes(m)
 	s.historyRoutes(m)
+	s.promRoutes(m)
+	m.HandleFunc("GET /api/profiles/{p}/support-bundle", s.auth(s.apiSupportBundle))
 
 	m.HandleFunc("GET /api/profiles/{p}/status", s.auth(s.apiStatus))
 	m.HandleFunc("POST /api/profiles/{p}/actions/{action}", s.auth(s.apiProfileAction))
