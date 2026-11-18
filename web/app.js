@@ -1785,7 +1785,10 @@ async function refreshStatusInfo() {
         }).catch(() => {});
       }
     }
+    const engineBefore = state.sbInfo?.engine;
     state.sbInfo = info;
+    const w = $("#welcome");
+    if (w && info.engine !== engineBefore) w.replaceWith(welcomeCard());
   } catch { state.sbInfo = { profile: prof }; }
   paintStatusBar();
 }
@@ -1803,9 +1806,10 @@ function paintStatusBar() {
   item("#sb-engine", "CE", running ? (i.engine || "…") : "stopped");
   const u = state.updates;
   const btn = $("#sb-update");
-  const avail = u && ((u.dashboard?.newer && u.dashboard?.canUpdate) || u.colima?.newer);
-  btn.hidden = !avail;
-  if (avail) btn.textContent = u.dashboard?.phase === "installed" ? "Restarting into the update…" : "Update available";
+  const n = (u?.tools || []).filter((t) => t.newer).length + (u?.dashboard?.newer && u?.dashboard?.canUpdate ? 1 : 0)
+    + (u?.colima?.newer && !(u?.tools || []).some((t) => t.formula === "colima") ? 1 : 0);
+  btn.hidden = !n;
+  if (n) btn.textContent = u.dashboard?.phase === "installed" ? "Restarting into the update…" : n === 1 ? "1 update available" : `${n} updates available`;
 }
 $("#sb-update").addEventListener("click", () => { location.hash = "#general"; render(); });
 
@@ -1850,14 +1854,36 @@ function welcomeCard() {
       rows.push(row("dev", "x", "A development build of Colima Dashboard.", rb));
     } else if (!d.canUpdate && d.reason) rows.push(row("manual", "x", `Colima Dashboard ${d.current}: ${d.reason}.`));
     else if (d.latest) rows.push(row("latest", "ok", `Colima Dashboard ${d.current} is up to date.`));
+    const tools = u.tools || [];
     const c = u.colima || {};
-    if (c.newer) rows.push(row("new", "warn", `Colima ${c.latest.version} is out (you have ${c.current}).${c.canUpdate ? "" : " " + c.reason}`,
-      link(c.latest.url, "Release notes"), c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : null));
-    else if (c.latest) rows.push(row("latest", "ok", `Colima ${c.current} is up to date.`));
+    if (!tools.some((t) => t.formula === "colima")) {
+      if (c.newer) rows.push(row("new", "warn", `Colima ${c.latest.version} is out (you have ${c.current}).${c.canUpdate ? "" : " " + c.reason}`,
+        link(c.latest.url, "Release notes"), c.canUpdate ? el("button.mini", { type: "button", onclick: updateColima }, "Update Colima") : null));
+      else if (c.latest) rows.push(row("latest", "ok", `Colima ${c.current} is up to date.`));
+    }
+    // Homebrew tools: one row each, newest first among the out of date ones.
+    for (const t of [...tools].sort((a, b) => b.newer - a.newer)) {
+      const what = el("span", el("strong", t.label), el("span.muted", ` ${t.about}. `));
+      if (t.newer) rows.push(row("new", "warn", el("span", what, `${t.latest} is out (you have ${t.current}).`),
+        t.url ? link(t.url, "What changed") : null, el("button.mini", { type: "button", onclick: () => updateTools([t]) }, "Update")));
+      else rows.push(row("latest", "ok", el("span", what, t.latest ? `${t.current} is up to date.` : `${t.current} (could not check).`)));
+    }
+    // Docker Engine runs inside the VM; Colima updates it with colima update.
+    const eng = engineVersion();
+    const dockerTool = tools.find((t) => t.formula === "docker");
+    if (eng && isRunning()) {
+      const behind = dockerTool?.latest && versionNewer(dockerTool.latest, eng);
+      const ub = el(`button.mini${behind ? "" : ".ghost"}`, { type: "button", onclick: updateRuntime }, "Update engine");
+      rows.push(row(behind ? "new" : "latest", behind ? "warn" : "ok",
+        el("span", el("strong", "Docker Engine"), el("span.muted", ` inside profile ${state.profile}. `),
+          behind ? `${eng}; Docker ${dockerTool.latest} is out. Colima installs the newest engine its VM image supports.` : `${eng}.`), ub));
+    }
     if (u.checkError) rows.push(el("div.upd", el("span.small.muted", `Could not check everything: ${u.checkError}`)));
   }
+  const stale = (u?.tools || []).filter((t) => t.newer);
   const checked = u?.checkedAt ? el("div.upd-head-r", el("span.small.muted", `Checked ${ago(Date.parse(u.checkedAt) / 1000)}`),
-    el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now")) : null;
+    el("button.ghost.mini", { type: "button", onclick: checkNow }, "Check now"),
+    stale.length > 1 ? el("button.mini", { type: "button", onclick: () => updateTools(stale) }, `Update all (${stale.length})`) : null) : null;
   const news = (u?.colimaNews || []).map((r, i) => el("details", { open: i === 0 && u.colima?.newer },
     el("summary", r.name || r.tag, el("span.muted", new Date(r.published).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }))),
     r.notes ? el("p", r.notes) : null,
@@ -1865,7 +1891,7 @@ function welcomeCard() {
   return el("section.card", { id: "welcome" },
     el("div.welcome",
       el("h2", el("img", { src: "/static/icon.svg", alt: "", width: 28, height: 28 }), "Welcome to Colima Dashboard"),
-      el("label.check", auto, "Update automatically"),
+      el("label.check", { title: "Installs new versions of Colima Dashboard by itself. Other tools update when you press Update." }, auto, "Update the dashboard automatically"),
       el("div", el("p.muted", `A local dashboard for Colima: your VMs, containers, images and Kubernetes in one place. Version ${ov.version || "–"}.`),
         el("div.links",
           el("a", { href: "https://github.com/abiosoft/colima", target: "_blank", rel: "noopener noreferrer" }, "Colima on GitHub"),
@@ -1898,6 +1924,28 @@ async function installDashboard() {
     paintStatusBar();
     if (state.updates.dashboard?.phase !== "downloading") clearInterval(poll);
   }, 1500);
+}
+
+function engineVersion() { return ((state.sbInfo || {}).engine || "").match(/\d+\.\d+\.\d+/)?.[0] || ""; }
+function versionNewer(a, b) {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
+
+// updateTools runs brew upgrade for the tools given, as one task.
+async function updateTools(list) {
+  const names = list.map((t) => `${t.label} ${t.current} → ${t.latest}`).join(", ");
+  const vm = list.some((t) => t.formula === "colima" || t.formula === "lima");
+  if (!await confirmBox(list.length === 1 ? `Update ${list[0].label}?` : `Update ${list.length} tools?`,
+    `Homebrew upgrades ${names}.${vm ? " Running profiles keep the old Colima or Lima until you restart them." : ""}`, "Update", false)) return;
+  runJob("POST", "/api/updates/brew", { formulae: list.map((t) => t.formula) }, () => refreshUpdates(true));
+}
+
+async function updateRuntime() {
+  if (!await confirmBox(`Update Docker Engine in ${state.profile}?`,
+    "Colima updates the container runtime inside the VM. Docker restarts, so running containers stop for a minute; ones with a restart policy start again.", "Update", false)) return;
+  runJob("POST", `${P()}/runtime-update`, undefined, () => { refreshStatusInfo(); refreshUpdates(true); });
 }
 
 async function updateColima() {

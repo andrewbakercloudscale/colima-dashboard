@@ -63,6 +63,9 @@ type State struct {
 	Colima    Component `json:"colima"`
 	// ColimaNews is Colima's latest releases, newest first, for the welcome page.
 	ColimaNews []Release `json:"colimaNews,omitempty"`
+	// Tools are the installed Homebrew formulae around Colima, each with the latest version.
+	Tools []Tool `json:"tools,omitempty"`
+	Brew  bool   `json:"brew"` // Homebrew is installed, so tools can be upgraded from the page
 }
 
 // Component is one updatable thing.
@@ -87,6 +90,9 @@ type Updater struct {
 	ColimaBin     string // path of the colima binary, to tell whether Homebrew manages it
 	HTTP          *http.Client
 	API           string // https://api.github.com, swapped in tests
+	// BrewPrefix is Homebrew's prefix; empty when Homebrew is missing, so tools are not checked.
+	BrewPrefix string
+	FormulaAPI string // https://formulae.brew.sh/api/formula, swapped in tests
 	// Restart is called after a self-update is installed, when it is safe to restart.
 	Restart func()
 	// Busy reports whether a long job (a VM start, say) is running; a restart waits for it.
@@ -111,6 +117,9 @@ func (u *Updater) Load() {
 	}
 	if u.API == "" {
 		u.API = "https://api.github.com"
+	}
+	if u.FormulaAPI == "" {
+		u.FormulaAPI = "https://formulae.brew.sh/api/formula"
 	}
 }
 
@@ -137,8 +146,8 @@ func (u *Updater) Snapshot() State {
 	return st
 }
 
-// Run checks now and then every 6 hours while automatic updates are on, installing a newer
-// Colima Dashboard when it finds one. It returns when ctx ends.
+// Run checks now and then every 6 hours, always, so the page and menu bar can say what is out of
+// date. With automatic updates on it also installs a newer Colima Dashboard. It returns when ctx ends.
 func (u *Updater) Run(ctx context.Context) {
 	// Let the page come up first.
 	select {
@@ -150,10 +159,8 @@ func (u *Updater) Run(ctx context.Context) {
 		u.mu.Lock()
 		auto := u.settings.Auto
 		u.mu.Unlock()
-		if auto {
-			if st := u.Check(ctx, false); st.Dashboard.Newer && st.Dashboard.CanUpdate && st.Dashboard.Phase == "" {
-				_ = u.Install(ctx)
-			}
+		if st := u.Check(ctx, false); auto && st.Dashboard.Newer && st.Dashboard.CanUpdate && st.Dashboard.Phase == "" {
+			_ = u.Install(ctx)
 		}
 		select {
 		case <-ctx.Done():
@@ -188,6 +195,10 @@ func (u *Updater) Check(ctx context.Context, force bool) State {
 	} else {
 		errs = append(errs, "Colima: "+err.Error())
 	}
+	tools, terr := u.checkTools(ctx)
+	if terr != nil {
+		errs = append(errs, "Homebrew: "+terr.Error())
+	}
 	colimaNow := ""
 	if u.ColimaVersion != nil {
 		colimaNow, _ = u.ColimaVersion(ctx)
@@ -204,6 +215,8 @@ func (u *Updater) Check(ctx context.Context, force bool) State {
 		u.state.Dashboard.Newer = Newer(dash.Version, u.Current)
 	}
 	u.state.ColimaNews = news
+	u.state.Tools = tools
+	u.state.Brew = u.BrewPrefix != ""
 	c := Component{Current: strings.TrimPrefix(colimaNow, "v")}
 	if len(news) > 0 {
 		c.Latest = &news[0]

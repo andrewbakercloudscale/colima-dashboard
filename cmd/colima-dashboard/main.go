@@ -131,6 +131,15 @@ func colimaHome() string {
 	return dot
 }
 
+// brewPrefix is Homebrew's prefix, or "" when brew is not installed.
+func brewPrefix() string {
+	brew, err := exec.LookPath("brew")
+	if err != nil {
+		return ""
+	}
+	return update.BrewPrefix(brew)
+}
+
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
@@ -173,6 +182,7 @@ func serve(port int, browser, newToken bool) error {
 		Current: version, Exe: exe, ColimaBin: bin,
 		SettingsPath:  filepath.Join(filepath.Dir(tokenPath()), "settings.json"),
 		ColimaVersion: col.Version,
+		BrewPrefix:    brewPrefix(),
 		Restart: func() {
 			select {
 			case restart <- struct{}{}:
