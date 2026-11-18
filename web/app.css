@@ -481,7 +481,8 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 
 /* ---------- General: profile card, things to fix ---------- */
 .vm-card { padding: 0; overflow: hidden; }
-.vm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.vm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px;
+  background: linear-gradient(120deg, var(--accent-soft), var(--panel) 75%); border-bottom: 1px solid var(--line); }
 .vm-title { display: flex; flex-direction: column; gap: 2px; }
 .vm-label { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .vm-title h2 { margin: 0; font-size: 18px; }
@@ -493,11 +494,17 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 .status.on i { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 .status.busy { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-soft); }
 .status.off i { background: #9aa3ad; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
-.tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 20px; border-right: 1px solid var(--line); }
-.tile:last-child { border-right: 0; }
+/* Each setting is a small tinted tile with a coloured icon, so the card reads at a glance. */
+.t1 { --hue: var(--series-1); } .t2 { --hue: var(--series-2); } .t3 { --hue: var(--series-3); } .t4 { --hue: var(--series-4); }
+.t5 { --hue: var(--series-5); } .t6 { --hue: var(--series-6); } .t7 { --hue: var(--series-7); } .t8 { --hue: var(--series-8); }
+.ichip { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; flex: none;
+  color: var(--hue, var(--accent)); background: color-mix(in srgb, var(--hue, var(--accent)) 14%, transparent); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 16px 20px 20px; }
+.tile { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--hue) 5%, var(--panel)); border: 1px solid color-mix(in srgb, var(--hue) 22%, var(--line)); }
+.tile-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tile-label { font-size: 12px; color: var(--muted); }
-.tile-value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile-value { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
 .fix-card { padding: 0; overflow: hidden; }
 .fix-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); }
@@ -511,9 +518,7 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 .sev { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px;
   background: var(--warn-soft); color: var(--warn); }
 .sev.fail { background: var(--bad-soft); color: var(--bad); }
-@media (max-width: 760px) {
-  .tile { border-right: 0; border-bottom: 1px solid var(--line); }
-}
+
 .fix-item .copy { flex-wrap: wrap; }
 .fix-item .copy code { overflow-wrap: anywhere; white-space: normal; min-width: 0; }
 
@@ -756,3 +761,22 @@ button.mini[data-act]:not([data-act="neutral"]):hover:not(:disabled) {
 }
 /* The few big calls to action (confirm box OK, the main button on a form) stay solid even when mini. */
 button.solid[data-act]:not([data-act="neutral"]) { background: var(--b); color: var(--bf); border-color: var(--b); }
+
+/* General: Engine and Disk cards get a coloured heading and clearer rows. */
+.info-card { padding: 0; overflow: hidden; }
+.info-head { display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--hue) 12%, var(--panel)), var(--panel) 75%); border-bottom: 1px solid var(--line); }
+.info-head h2 { margin: 0; font-size: 17px; flex: 1; }
+.info-card > :not(.info-head) { margin-left: 20px; margin-right: 20px; }
+.info-card > :last-child { margin-bottom: 16px; }
+.kv.kv-rows { gap: 0 20px; margin-top: 6px; }
+.kv.kv-rows > dt, .kv.kv-rows > dd { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.kv.kv-rows > dt:nth-last-child(2), .kv.kv-rows > dd:last-child { border-bottom: 0; }
+.kv.kv-rows > dd { font-weight: 550; }
+.info-card .bars { margin-top: 14px; }
+.info-card .bar .track { height: 10px; }
+.fill.f1 { background: var(--series-1); } .fill.f2 { background: var(--series-2); } .fill.f3 { background: var(--series-3); } .fill.f4 { background: var(--series-4); }
+.fill.f5 { background: var(--series-5); } .fill.f6 { background: var(--series-6); } .fill.f7 { background: var(--series-7); } .fill.f8 { background: var(--series-8); }
+
+/* Theme switch: icon plus a word, so it is easy to find. */
+.sb-theme { width: auto; gap: 6px; padding: 0 10px 0 8px; grid-auto-flow: column; font-size: 12.5px; font-weight: 600; }
