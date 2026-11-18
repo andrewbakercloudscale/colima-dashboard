@@ -32,6 +32,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/diagnostics", s.auth(s.apiDiagnostics))
 	s.updateRoutes(m)
 	s.terminalRoutes(m)
+	s.vulnRoutes(m)
 	s.k8sRoutes(m)
 	s.historyRoutes(m)
 	s.promRoutes(m)
@@ -432,8 +433,8 @@ func (s *Server) apiScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid image reference %q", body.Ref))
 		return
 	}
-	trivy, err := exec.LookPath("trivy")
-	if err != nil {
+	trivy := findTrivy()
+	if trivy == "" {
 		writeError(w, http.StatusNotFound, errors.New("trivy is not installed: brew install trivy"))
 		return
 	}

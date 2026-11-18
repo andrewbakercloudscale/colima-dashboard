@@ -51,7 +51,7 @@ function actOf(b) {
   if (b.classList.contains("danger")) return "danger";
   return t ? "neutral" : "";
 }
-const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact, .bl-crumbs button, button.bl-gbtn";
+const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact, .bl-crumbs button, button.bl-gbtn, button.vs-chip";
 function tagButtons(root = document) {
   for (const b of root.querySelectorAll("button, a.btn")) {
     if (b.dataset.actFixed !== undefined || b.matches(NO_ACT)) continue;
@@ -340,7 +340,7 @@ async function runJob(method, path, body, onDone) {
 const DRAWER_KINDS = [
   ["Inspect", "search", "t1"], ["VM logs", "logs", "t7"], ["Logs", "logs", "t7"], ["Shell", "shell", "t3"],
   ["Volume", "disk", "t4"], ["Files", "folder", "t4"], ["Limits", "sliders", "t2"], ["Fix", "wrench", "t2"],
-  ["Pod", "wheel", "t1"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"], ["Bloat", "layers", "t8"],
+  ["Pod", "wheel", "t1"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"], ["Bloat", "layers", "t8"], ["CVEs", "shield", "t8"],
 ];
 function drawerTitle(title) {
   const k = DRAWER_KINDS.find(([w]) => title.startsWith(w + ":") || title.startsWith(w + " "));
@@ -494,6 +494,7 @@ const CHIP_PATHS = {
   restart: '<path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
   code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/><path d="m3 17.5 9 5 9-5" opacity=".55"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.3 8.2-8 9-4.7-.8-8-4.5-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
   term: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
 };
@@ -1644,6 +1645,7 @@ const tabs = {
 const NAV_ICONS = {
   general: ["#2a78d6", "M3 12h4l3 8 4-16 3 8h4"],
   monitor: ["#7c3aed", "M3 3v18h18M7 15l4-4 3 3 5-6"],
+  security: ["#e11d48", "M12 3l8 3v6c0 4.5-3.3 8.2-8 9-4.7-.8-8-4.5-8-9V6zM9 12l2 2 4-4"],
   shells: ["#db2777", "M3 5h18v14H3zM7 9l3 3-3 3M13 15h4"],
   containers: ["#0f766e", "M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10"],
   images: ["#c2410c", "M4 6h16v12H4zM4 14l5-4 4 3 3-2 4 3"],

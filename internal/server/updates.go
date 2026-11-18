@@ -107,7 +107,7 @@ func (s *Server) apiUpdateBrew(w http.ResponseWriter, r *http.Request) {
 
 // installable is every formula a Diagnostics fix may install in place.
 var installable = map[string]bool{
-	"kubernetes-cli": true, "docker": true, "docker-buildx": true,
+	"kubernetes-cli": true, "docker": true, "docker-buildx": true, "trivy": true,
 	"docker-compose": true, "docker-credential-helper": true,
 }
 
