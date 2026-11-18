@@ -757,3 +757,24 @@ func (h *Hub) Latest(profile string, maxAge time.Duration) (s Sample, names, ima
 	}
 	return s, names, images, true
 }
+
+// Window returns the samples taken since a time, without marking the profile as watched: the
+// Fix recommendations read what the Monitor already collected and start nothing. The samples
+// share their Containers maps with the hub, so callers must only read them.
+func (h *Hub) Window(profile string, since time.Time) []Sample {
+	h.mu.Lock()
+	c := h.cols[profile]
+	h.mu.Unlock()
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []Sample
+	for _, s := range c.samples {
+		if s.T > since.UnixMilli() {
+			out = append(out, s)
+		}
+	}
+	return out
+}

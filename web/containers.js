@@ -29,14 +29,22 @@ function containerFlags(c) {
     out.push(el("span.pill.oom", {
       title: `The kernel killed this container for using more than its memory limit${d.memory ? ` (${memText(d.memory)})` : ""}` +
         `${d.finishedAt && !d.finishedAt.startsWith("0001") ? ` at ${new Date(d.finishedAt).toLocaleString()}` : ""}. Exit code ${d.exitCode}. Raise the limit with Limits.`,
-    }, "out of memory"));
+    }, "out of memory"), fixSlot(adviceFor.container(c.Id, ["oom"])));
   }
   if (c.health) {
     const tone = c.health === "healthy" ? "ok" : c.health === "unhealthy" ? "bad" : "warn";
     out.push(el(`span.pill.health.${tone}`, { title: `Healthcheck: ${c.health}` }, c.health === "starting" ? "health: starting" : c.health));
   }
-  return out.length ? el("div.cflags", out) : null;
+  if (c.State === "running") {
+    // close to a limit, held back by one, or no limit and big: a pill and its Fix, from the advice
+    out.push(fixSlot(adviceFor.container(c.Id, ["memory-near-limit", "cpu-at-limit", "memory-no-limit"]), {
+      render: (is) => el("span.fix-pair", el(`span.pill.${is.severity === "bad" ? "fail" : "warn"}`, { title: is.why }, RUNNING_FLAG[is.kind]), fixButton(is)),
+    }));
+  }
+  return el("div.cflags", out);
 }
+
+const RUNNING_FLAG = { "memory-near-limit": "near memory limit", "cpu-at-limit": "CPU limited", "memory-no-limit": "big, no limit" };
 
 // Limits cell: memory and CPU limits, muted "no limit" when unset.
 function limitsCell(c) {
@@ -53,7 +61,8 @@ function limitsCell(c) {
 const MEM_PRESETS = ["128m", "256m", "512m", "1g", "2g", "4g"];
 const CPU_PRESETS = ["0.25", "0.5", "1", "2"];
 
-async function showLimits(c, name) {
+// prefill (optional) puts suggested values in the fields, for example a Fix recommendation: { memory: "512m", cpus: "1" }.
+async function showLimits(c, name, prefill) {
   let d;
   try { d = await api("GET", `${P()}/containers/${encodeURIComponent(c.Id)}`); } catch (e) { toast(e.message, true); return; }
   const hc = d.HostConfig || {};
@@ -65,9 +74,9 @@ async function showLimits(c, name) {
   const labels = d.Config?.Labels || {};
   const service = labels["com.docker.compose.service"] || "";
   const input = (val, ph, label) => el("input.mono", { type: "text", value: val, placeholder: ph, "aria-label": label, spellcheck: false, autocomplete: "off" });
-  const mem = input(cur.memory, "no limit", "Memory limit");
+  const mem = input(prefill?.memory || cur.memory, "no limit", "Memory limit");
   const res = input(cur.reservation, "none", "Memory reservation");
-  const cpus = input(cur.cpus, "no limit", "CPUs");
+  const cpus = input(prefill?.cpus || cur.cpus, "no limit", "CPUs");
   const restart = el("select", { "aria-label": "Restart policy" },
     ["no", "on-failure", "unless-stopped", "always"].map((p) => el("option", { value: p, selected: p === cur.restart }, p)));
   const retries = el("input", { type: "number", min: 0, max: 1000, value: cur.retries, "aria-label": "Maximum retries", class: "lim-retries" });
@@ -127,6 +136,7 @@ async function showLimits(c, name) {
     try {
       const r = await api("POST", `${P()}/containers/${encodeURIComponent(c.Id)}/limits`, body);
       toast(`${name}: limits applied${r.warnings?.length ? ` (${r.warnings.join("; ")})` : ""}`);
+      loadAdvice(true).catch(() => { /* recommendations catch up on their own */ });
       Object.assign(cur, { memory: body.memory ?? cur.memory, reservation: body.memoryReservation ?? cur.reservation, cpus: body.cpus ?? cur.cpus,
         restart: body.restart ?? cur.restart, retries: body.restart ? body.maxRetries : cur.retries });
       refresh();
@@ -139,6 +149,7 @@ async function showLimits(c, name) {
   const row = (label, help, ...ctrls) => el("div.lim-row", el("div.lim-label", el("strong", label), el("span.muted.small", help)), el("div.lim-ctrl", ...ctrls));
   openDrawer(`Limits: ${name}`,
     el("div.card.lim-card",
+      prefill ? el("p.small.lim-prefill", "The recommended values are filled in. Change them if you like, then Apply.") : null,
       el("p.muted.small", "Changes apply live with docker update: no restart. Sizes like 256m, 1g or 1.5g; CPUs like 0.5 or 2."),
       row("Memory limit", "The most it may use; above this the kernel kills it.", mem, presets(MEM_PRESETS, mem)),
       row("Memory reservation", "A soft floor kept for it when the VM runs short.", res, presets(["64m", "128m", "256m", "512m"], res)),

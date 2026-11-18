@@ -82,6 +82,7 @@ type Server struct {
 	shellOnce  sync.Once
 	shells     *shells
 	details    detailCache // container inspect summaries for the list
+	advice     adviceCache // Fix recommendations, 30 seconds
 	prom       promState
 }
 

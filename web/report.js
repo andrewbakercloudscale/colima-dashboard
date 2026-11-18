@@ -155,6 +155,7 @@ async function renderReport(main) {
     el("div", el("h1", "Report"), el("p.muted", `What happened in profile ${state.profile}: tests, builds, disk, cost and uptime, from the history kept on this Mac.`)),
     el("div.toolbar.report-tools", daysSeg(days, (d) => { safeSet("reportdays", String(d)); render(); }), md, print));
   main.replaceChildren(head, el("div.card", el("p.muted", "Loading…")));
+  loadAdvice().catch(() => { /* Fix buttons are extra */ });
   const { report: r, recording } = await api("GET", `${P()}/report?days=${days}`);
   const t = r.tests, b = r.builds, d = r.disk, u = r.usage;
   const when = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -213,7 +214,7 @@ async function renderReport(main) {
 
   const oom = el("div.card.viz", el("div.viz-head", el("h2", "Out of memory"), el("span.muted.small", `${t.oom} in this window`)),
     el("div.report-body", t.oomEvents.length
-      ? el("ul.report-list", t.oomEvents.map((e) => el("li", el("span.mono.small", when(e.t)), " ", el("strong", e.name), el("span.muted.small", ` ${e.job}`))))
+      ? el("ul.report-list", t.oomEvents.map((e) => el("li", el("span.mono.small", when(e.t)), " ", el("strong", e.name), el("span.muted.small", ` ${e.job}`), " ", fixSlot(adviceFor.job(e.job)))))
       : el("p.empty.small", "No container was killed for memory.")));
 
   main.replaceChildren(head, el("div.report", title, stats, el("div.viz-grid", tests, builds), el("div.viz-grid", disk, usage), oom,
