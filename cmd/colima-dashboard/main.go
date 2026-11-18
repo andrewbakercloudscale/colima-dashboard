@@ -131,6 +131,15 @@ func colimaHome() string {
 	return dot
 }
 
+// brewPrefix is Homebrew's prefix, or "" when brew is not installed.
+func brewPrefix() string {
+	brew, err := exec.LookPath("brew")
+	if err != nil {
+		return ""
+	}
+	return update.BrewPrefix(brew)
+}
+
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
@@ -173,6 +182,7 @@ func serve(port int, browser, newToken bool) error {
 		Current: version, Exe: exe, ColimaBin: bin,
 		SettingsPath:  filepath.Join(filepath.Dir(tokenPath()), "settings.json"),
 		ColimaVersion: col.Version,
+		BrewPrefix:    brewPrefix(),
 		Restart: func() {
 			select {
 			case restart <- struct{}{}:
@@ -222,6 +232,7 @@ func serve(port int, browser, newToken bool) error {
 		Snapshots: &snapshot.Store{Dir: filepath.Join(filepath.Dir(tokenPath()), "snapshots"), ColimaHome: colimaHome(),
 			Instance: colima.LimaInstance, Clone: snapshot.CloneFile},
 		Alerts: center, MenuBarAvailable: menubar.Available(), LoginItem: loginItem{port: port},
+		DataDir: appDir,
 		// The locked page's button: open the signed-in link in this user's own browser session.
 		OpenBrowser: func() error { return exec.Command("open", server.BaseURL(port)+"/?token="+token).Run() },
 	})

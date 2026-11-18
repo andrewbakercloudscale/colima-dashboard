@@ -16,6 +16,7 @@ func (s *Server) historyRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/profiles/{p}/runs", s.auth(s.apiRuns))
 	m.HandleFunc("GET /api/profiles/{p}/builds", s.auth(s.apiBuilds))
 	m.HandleFunc("GET /api/profiles/{p}/history", s.auth(s.apiHistory))
+	m.HandleFunc("GET /api/profiles/{p}/report", s.auth(s.apiReport))
 }
 
 // historyArgs validates the profile and reads ?days= (1 to 30, default 30).
@@ -51,6 +52,9 @@ func (s *Server) apiRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runs := s.opt.History.Store.Runs(p, since)
+	if exportHistory(w, r, p, rangeName("runs", since), runs, runCSV) {
+		return
+	}
 	recent := runs[max(0, len(runs)-200):]
 	// newest first for the table
 	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
@@ -70,6 +74,9 @@ func (s *Server) apiBuilds(w http.ResponseWriter, r *http.Request) {
 		s.opt.History.PollBuilds(r.Context(), p)
 	}
 	builds := s.opt.History.Store.Builds(p, since)
+	if exportHistory(w, r, p, rangeName("builds", since), builds, buildCSV) {
+		return
+	}
 	recent := builds[max(0, len(builds)-200):]
 	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
 		recent[i], recent[j] = recent[j], recent[i]
@@ -86,6 +93,9 @@ func (s *Server) apiHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	points := s.opt.History.Store.Points(p, since)
+	if exportHistory(w, r, p, rangeName("history", since), points, pointCSV) {
+		return
+	}
 	week := s.opt.History.Store.Points(p, time.Now().Add(-7*24*time.Hour))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"points": points, "forecast": history.DiskForecast(week), "recording": s.recording(p),

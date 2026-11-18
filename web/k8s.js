@@ -20,6 +20,38 @@ if (!K8S_VIEWS.some(([v]) => v === k8s.view)) k8s.view = "overview";
 // openDrawer puts every argument on the page, null included; drop the empty ones first.
 function openK8sDrawer(title, ...nodes) { openDrawer(title, ...nodes.filter((n) => n !== null && n !== undefined && n !== false)); }
 
+// ---------- card heads, tones, empty states ----------
+
+// Icons for the card heads, added to app.js's set (static SVG, no data from the cluster).
+Object.assign(CHIP_PATHS, {
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>',
+  node: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.5M7 16.5h.5"/>',
+  bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+  pod: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  plug: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 11 15.7 7M8.3 13l7.4 4"/>',
+  fwd: '<path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  code: '<path d="m9 7-5 5 5 5M15 7l5 5-5 5"/>',
+  term: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+});
+
+// k8sHead is the General page's card head (coloured icon, title) with the count as a pill and
+// anything else on the right.
+function k8sHead(hue, icon, title, count, ...right) {
+  return el(`div.info-head.k8s-head.${hue}`, chip(icon),
+    el("h2", title, count !== null && count !== undefined ? el("span.pill.k8s-count", String(count)) : null),
+    el("div.k8s-head-r", right));
+}
+
+function emptyState(icon, title, hint, tone) {
+  return el(`div.k8s-empty${tone ? "." + tone : ""}`, chip(icon), el("div", el("strong", title), hint ? el("p.small.muted", hint) : null));
+}
+
+const SVC_TONE = { ClusterIP: "info", NodePort: "go", LoadBalancer: "purple", ExternalName: "warn" };
+const KIND_TONE = { Deployment: "info", StatefulSet: "purple", DaemonSet: "go", ReplicaSet: "info", Job: "warn", CronJob: "warn" };
+
 // ---------- formatting ----------
 
 function cpuFmt(m) {
@@ -43,7 +75,7 @@ function podTone(p) {
   if (p.reason) return "fail";
   const [r, t] = p.ready.split("/");
   if (p.phase === "Running" && r === t) return "ok";
-  if (p.phase === "Succeeded") return "x";
+  if (p.phase === "Succeeded") return "tone-info";
   return p.phase === "Failed" ? "fail" : "warn";
 }
 
@@ -161,16 +193,15 @@ function issuesCard(ov) {
   const recs = allRecs(all);
   const applyAll = recs.length ? el("button.mini", { type: "button", title: "Apply every resource recommendation that can be applied from here", onclick: () => applyAllRecs(recs) },
     `Apply all recommendations (${recs.length})`) : null;
-  const head = el("div.fix-head", el("div", el("h2", "Config issues"),
-    el("p.small.muted.k8s-sub", all.length ? `Checked ${pods} pod${pods === 1 ? "" : "s"}${ov.metrics ? " and their live use" : ""}.` : "")),
-  el("div.toolbar", applyAll, seg));
+  const checked = `Checked ${pods} pod${pods === 1 ? "" : "s"}${ov.metrics ? " and their live use" : ""}`;
+  const head = k8sHead("t8", "alert", "Config issues", all.length, applyAll);
   if (!all.length) {
-    card.append(head, el("p.vm-empty", el("span.pill.ok", "ok"), ` No problems found in ${pods} pod${pods === 1 ? "" : "s"}.`));
+    card.append(head, emptyState("check", `No problems found in ${pods} pod${pods === 1 ? "" : "s"}`, `${checked}: requests and limits, probes, image tags, crashes and what fits on the node.`, "ok"));
     return card;
   }
   const items = shown.map(issueItem);
   const list = el("ul.fix-list", items.slice(0, 8));
-  card.append(head, list);
+  card.append(head, el("div.k8s-subbar", el("span.small.muted", `${checked}.`), seg), list);
   if (items.length > 8) {
     const more = el("button.ghost.mini", { type: "button" }, `Show ${items.length - 8} more`);
     more.addEventListener("click", () => { list.replaceChildren(...items); more.remove(); });
@@ -191,7 +222,7 @@ function issueItem(is) {
   const acts = [];
   if (is.plan) acts.push(el("button.mini", { type: "button", onclick: () => openFix(is) }, fixLabel(is)));
   if (is.action === "previous-logs" && pod) acts.push(el("button.ghost.mini", { type: "button", onclick: () => showPodLogs(pod, true) }, "Logs of the last run"));
-  if (pod) acts.push(el("button.ghost.mini", { type: "button", onclick: () => openPod(pod) }, "Pod details"));
+  if (pod) acts.push(el("button.ghost.mini", { type: "button", onclick: () => openPod(pod) }, "Details"));
   return el(`li.fix-item.${is.severity}`,
     el("div.fix-title", el("strong", is.title), el(`span.sev.${is.severity}`, SEV_LABEL[is.severity] || is.severity)),
     el("div.k8s-where.small.muted", where),
@@ -202,7 +233,7 @@ function issueItem(is) {
 
 function fixLabel(is) {
   const pl = is.plan;
-  return pl.kind === "resources" && pl.applicable ? "Fix…" : pl.kind === "patch" ? "Show the fix…" : "How to fix…";
+  return pl.kind === "resources" && pl.applicable ? "Fix…" : "Fix (how to)…";
 }
 
 // The worst issue of a pod, for the Fix button on its row.
@@ -333,9 +364,9 @@ async function openFix(is) {
   const acts = el("div.toolbar",
     pl.patch ? copyBtn(pl.patch) : null,
     EDITABLE.has(wkind) ? el("button.ghost.mini", { type: "button", onclick: () => openYAML(wkind.toLowerCase(), is.namespace, wname) }, `Edit ${wkind} YAML`)
-      : pod ? el("button.ghost.mini", { type: "button", onclick: () => openYAML("pod", is.namespace, pod.name) }, "Pod YAML") : null,
+      : pod ? el("button.ghost.mini", { type: "button", onclick: () => openYAML("pod", is.namespace, pod.name) }, "YAML") : null,
     pod && pod.restarts ? el("button.ghost.mini", { type: "button", onclick: () => showPodLogs(pod, true) }, "Logs of the last run") : null,
-    pod ? el("button.ghost.mini", { type: "button", onclick: () => openPod(pod) }, "Pod details and events") : null);
+    pod ? el("button.ghost.mini", { type: "button", onclick: () => openPod(pod) }, "Details and events") : null);
   openK8sDrawer(`Fix: ${is.title}`, box, table,
     pl.patch ? el("h3", pl.kind === "resources" ? "The change, for the manifest it came from" : "YAML to add (a strategic merge patch)") : null,
     pl.patch ? el("pre.log.k8s-patch", pl.patch) : null,
@@ -372,24 +403,21 @@ function nodeCard(n) {
     meter("Limits", n.memLim, n.memAlloc, memFmt, "The most memory the pods may use between them. Over 100% means the node runs out if several grow at once."),
     n.hasUsage ? meter("In use", n.memUse, n.memAlloc, memFmt, "What the node uses now, including the system and k3s itself.") : null);
   const over = n.cpuLim > n.cpuAlloc || n.memLim > n.memAlloc;
-  return el("section.card",
-    el("div.card-head",
-      el("div", el("h2", `Node ${n.name}`),
-        el("p.small.muted.k8s-sub", `${n.version} · ${n.os} · ${n.pods} of ${n.podsCap} pods · capacity ${cpuFmt(n.cpuCap)}, ${memFmt(n.memCap)}`)),
-      el("div.toolbar", over ? el("span.pill.warn", { title: "Pods may use more than the node has if they all hit their limits" }, "overcommitted") : null,
-        el(`span.pill.${n.ready ? "ok" : "fail"}`, n.ready ? "Ready" : "Not ready"))),
+  return el("section.card.info-card.k8s-card2",
+    k8sHead("t1", "node", `Node ${n.name}`, null,
+      over ? el("span.pill.warn", { title: "Pods may use more than the node has if they all hit their limits" }, "overcommitted") : null,
+      el(`span.pill.${n.ready ? "ok" : "fail"}`, n.ready ? "Ready" : "Not ready")),
+    el("p.small.muted.k8s-sub", `${n.version} · ${n.os} · ${n.pods} of ${n.podsCap} pods · capacity ${cpuFmt(n.cpuCap)}, ${memFmt(n.memCap)}`),
     el("div.k8s-node", left, right),
     n.hasUsage ? null : el("p.small.muted", "Live use needs metrics-server."));
 }
 
 function warningsCard(ov) {
   const evs = ov.warnings.filter((e) => nsShown(e.namespace) && Date.now() / 1000 - e.last < 86400);
-  if (!evs.length) return el("section.card", el("h2", "Warnings"), el("p.muted", "No warning events in the last day."));
-  const rows = evs.slice(0, 6).map(eventRow);
-  return el("section.card.k8s-warn",
-    el("div.card-head", el("h2", `Warnings · ${evs.length} in the last day`),
-      el("button.ghost.mini", { type: "button", onclick: () => switchView("events") }, "All events")),
-    el("ul.k8s-events", rows));
+  const head = k8sHead("t4", "bell", "Warnings", evs.length, el("span.muted.small", "last day"),
+    el("button.ghost.mini", { type: "button", onclick: () => switchView("events") }, "Events"));
+  if (!evs.length) return el("section.card.info-card.k8s-card2", head, emptyState("bell", "No warning events in the last day", "Kubernetes keeps events for an hour; this shows what it still has.", "ok"));
+  return el("section.card.info-card.k8s-card2", head, el("ul.k8s-events", evs.slice(0, 6).map(eventRow)));
 }
 
 function eventRow(e) {
@@ -414,9 +442,10 @@ async function podsView() {
   const pods = ov.pods.filter((p) => nsShown(p.namespace));
   const mode = el("div.seg.small-seg", [["status", "Status"], ["resources", "Resources"]].map(([m, label]) =>
     el(`button.${k8s.podMode === m ? "on" : "off"}`, { type: "button", onclick: () => { k8s.podMode = m; safeSet("k8sPodMode", m); drawK8sView($(".k8s-body"), true); } }, label)));
-  const card = el("section.card", el("div.card-head", el("h2", `Pods · ${pods.length}`), mode));
+  const card = el("section.card.info-card.k8s-card2", k8sHead("t3", "pod", "Pods", pods.length, mode));
   if (!pods.length) {
-    card.append(el("p.muted", ov.pods.length ? "Nothing here with this filter; kube-system is hidden unless you tick it." : "No pods yet. Apply a manifest under Apply YAML and it shows up here."));
+    card.append(ov.pods.length ? emptyState("pod", "No pods with this filter", "kube-system is hidden unless you tick Show kube-system.")
+      : emptyState("pod", "No pods yet", "Apply a manifest under Apply YAML and it shows up here."));
     return [card];
   }
   if (k8s.podMode === "resources") {
@@ -562,9 +591,9 @@ async function podShell(p) {
 
 async function workloadsView() {
   const wls = (await loadWorkloads()).filter((w) => nsShown(w.namespace));
-  const card = el("section.card", el("div.card-head", el("h2", `Workloads · ${wls.length}`),
+  const card = el("section.card.info-card.k8s-card2", k8sHead("t7", "layers", "Workloads", wls.length,
     el("span.small.muted", "Deployments, StatefulSets and DaemonSets")));
-  if (!wls.length) { card.append(el("p.muted", "No workloads with this filter.")); return [card]; }
+  if (!wls.length) { card.append(emptyState("layers", "No workloads with this filter", "Apply a Deployment under Apply YAML, or tick Show kube-system.")); return [card]; }
   card.append(el("div.table-wrap", el("table.k8s-table",
     el("thead", el("tr", ["Workload", "Ready", "Up to date", "Age", "Scale", ""].map((h) => el("th", h)))),
     shortBody(wls.map(workloadRow), 40))));
@@ -591,7 +620,7 @@ function workloadRow(w) {
       el("button.ghost.mini", { type: "button", "aria-label": "One more", onclick: () => step(1) }, "+"), go);
   }
   return el("tr",
-    el("td", el("span.pill.k8s-kind", w.kind), " ", el("button.link.k8s-name", { type: "button", onclick: () => openYAML(kind, w.namespace, w.name), title: "View and edit YAML" }, w.name),
+    el("td", el(`span.pill.k8s-kind.tone-${KIND_TONE[w.kind] || "info"}`, w.kind), " ", el("button.link.k8s-name", { type: "button", onclick: () => openYAML(kind, w.namespace, w.name), title: "View and edit YAML" }, w.name),
       el("div.muted.small", [k8s.ns ? null : w.namespace, w.images.join(", ")].filter(Boolean).join(" · ")),
       w.message ? el("div.small.bad-text", w.message) : null),
     el("td", el(`span.pill.${tone}`, `${w.ready}/${w.desired}`)),
@@ -601,7 +630,7 @@ function workloadRow(w) {
     el("td.actions.wrap",
       el("button.ghost.mini", { type: "button", onclick: () => restartWorkload(w) }, "Restart"),
       el("button.ghost.mini", { type: "button", onclick: () => rollbackWorkload(w) }, "Roll back"),
-      el("button.ghost.mini", { type: "button", onclick: () => openResources(w) }, "Resources"),
+      el("button.ghost.mini", { type: "button", onclick: () => openResources(w) }, "Edit resources"),
       el("button.ghost.mini", { type: "button", onclick: () => openYAML(kind, w.namespace, w.name) }, "YAML")));
 }
 
@@ -733,14 +762,14 @@ async function servicesView() {
   const svcs = net.services.filter((s) => nsShown(s.namespace));
   const ings = net.ingresses.filter((i) => nsShown(i.namespace));
   const open = (port) => el("a", { href: `http://localhost:${port}`, target: "_blank", rel: "noopener noreferrer" }, `localhost:${port}`);
-  const sCard = el("section.card", el("div.card-head", el("h2", `Services · ${svcs.length}`)));
-  if (!svcs.length) sCard.append(el("p.muted", "No services with this filter."));
+  const sCard = el("section.card.info-card.k8s-card2", k8sHead("t1", "plug", "Services", svcs.length, el("span.small.muted", "how pods are reached")));
+  if (!svcs.length) sCard.append(emptyState("plug", "No services with this filter", "A Service gives a set of pods one address; apply one under Apply YAML."));
   else {
     sCard.append(el("div.table-wrap", el("table.k8s-table",
       el("thead", el("tr", ["Service", "Type", "Cluster IP", "Ports", "On your Mac", ""].map((h) => el("th", h)))),
       shortBody(svcs.map((s) => el("tr",
         el("td", el("strong", s.name), k8s.ns ? null : el("div.muted.small", s.namespace)),
-        el("td", el("span.pill", s.type)),
+        el("td", el(`span.pill.tone-${SVC_TONE[s.type] || "info"}`, s.type)),
         el("td.mono.small", s.clusterIP || "–"),
         el("td.small", s.ports.map((p) => el("div.mono", `${p.port}${p.targetPort !== undefined && String(p.targetPort) !== String(p.port) ? `→${p.targetPort}` : ""}/${(p.protocol || "TCP").toLowerCase()}${p.nodePort ? ` (node ${p.nodePort})` : ""}`))),
         el("td.small", s.ports.map((p) => {
@@ -752,14 +781,14 @@ async function servicesView() {
           el("button.ghost.mini", { type: "button", onclick: () => openYAML("service", s.namespace, s.name) }, "YAML")))), 40))),
     el("p.small.muted", "LoadBalancer and NodePort services reach your Mac by themselves. Forward a ClusterIP service to reach it on localhost."));
   }
-  const iCard = el("section.card", el("div.card-head", el("h2", `Ingresses · ${ings.length}`)));
-  if (!ings.length) iCard.append(el("p.muted", "No ingresses with this filter."));
+  const iCard = el("section.card.info-card.k8s-card2", k8sHead("t5", "net", "Ingresses", ings.length, el("span.small.muted", "HTTP routes by host and path")));
+  if (!ings.length) iCard.append(emptyState("net", "No ingresses with this filter", "An Ingress routes web traffic by host name to a Service; it needs an ingress controller such as Traefik."));
   else {
     iCard.append(el("div.table-wrap", el("table.k8s-table",
       el("thead", el("tr", ["Ingress", "Class", "Routes", "Address", ""].map((h) => el("th", h)))),
       el("tbody", ings.map((i) => el("tr",
         el("td", el("strong", i.name), k8s.ns ? null : el("div.muted.small", i.namespace), i.tls ? el("span.pill.ok", "TLS") : null),
-        el("td.small", i.class || "default"),
+        el("td", el(`span.pill.tone-${i.class ? "purple" : "info"}`, i.class || "default")),
         el("td.small", i.rules.map((r) => el("div.mono", `${r.host}${r.path || "/"} → ${r.service || "?"}:${r.port || "?"}`))),
         el("td.small.mono", i.address.join(", ") || "–"),
         el("td.actions", el("button.ghost.mini", { type: "button", onclick: () => openYAML("ingress", i.namespace, i.name) }, "YAML"))))))));
@@ -775,10 +804,10 @@ async function loadForwards() {
 
 // k8sForwardsCard lists the running port forwards; the Port Forwarding page shows it too.
 function k8sForwardsCard(after) {
-  const card = el("section.card", el("div.card-head", el("h2", "Port forwards"),
-    el("span.small.muted", "kubectl port-forward inside the VM, brought to localhost by Colima")));
+  const card = el("section.card.info-card.k8s-card2", k8sHead("t2", "fwd", "Port forwards", k8s.fwd.length,
+    el("span.small.muted", "kubectl port-forward in the VM, on your Mac's localhost")));
   if (!k8s.fwd.length) {
-    card.append(el("p.muted.small", "None running. Use Forward… on a service, or Port forward… in a pod's details."));
+    card.append(emptyState("fwd", "None running", "Use Forward… on a service, or Port forward… in a pod's details, to reach it on localhost."));
     return card;
   }
   card.append(el("table.k8s-table", el("tbody", k8s.fwd.map((f) => el("tr",
@@ -829,14 +858,15 @@ async function eventsView() {
   const warnOnly = el("input", { type: "checkbox", checked: safeGet("k8sWarnOnly") === "1" });
   const evs = (await api("GET", `${P()}/kubernetes/events${k8s.ns ? `?ns=${encodeURIComponent(k8s.ns)}` : ""}`)).filter((e) => nsShown(e.namespace));
   if (!k8s.ov) await loadOverview().catch(() => {});
-  const list = el("ul.k8s-events");
+  const list = el("div");
   const paint = () => {
     const shown = evs.filter((e) => !warnOnly.checked || e.type === "Warning");
-    list.replaceChildren(...(shown.length ? shown.slice(0, 300).map(eventRow) : [el("li", el("span.muted", "No events. Kubernetes keeps them for an hour."))]));
+    list.replaceChildren(shown.length ? el("ul.k8s-events", shown.slice(0, 300).map(eventRow))
+      : emptyState("clock", warnOnly.checked ? "No warnings" : "No events", "Kubernetes keeps events for an hour.", "ok"));
   };
   warnOnly.addEventListener("change", () => { safeSet("k8sWarnOnly", warnOnly.checked ? "1" : "0"); paint(); });
   paint();
-  return [el("section.card", el("div.card-head", el("h2", `Events · ${evs.length}`), el("label.check.small", warnOnly, "Warnings only")), list)];
+  return [el("section.card.info-card.k8s-card2", k8sHead("t6", "clock", "Events", evs.length, el("label.check.small", warnOnly, "Warnings only")), list)];
 }
 
 // ---------- YAML ----------
@@ -934,9 +964,10 @@ async function applyView() {
     if (!await confirmBox("Apply this YAML?", `kubectl apply creates or updates ${kinds.length ? kinds.join(", ") : "what it describes"} in the cluster.`, "Apply", false)) return;
     if (await applyYAML(ta.value, false, out)) toast("Applied");
   });
-  return [el("section.card.k8s-apply",
-    el("div.card-head", el("h2", "Apply YAML"), el("div.toolbar",
-      el("button.ghost.mini", { type: "button", onclick: () => { ta.value = SAMPLE_YAML; k8s.draft = ta.value; } }, "Insert example"), dry, apply)),
+  return [el("section.card.info-card.k8s-card2.k8s-apply",
+    k8sHead("t7", "code", "Apply YAML", null,
+      el("button.ghost.mini", { type: "button", onclick: () => { ta.value = SAMPLE_YAML; k8s.draft = ta.value; } }, "Insert example")),
+    el("div.toolbar.k8s-apply-bar", dry, apply),
     el("p.small.muted", "Runs kubectl apply inside the VM. Dry run asks the API server to check everything, including that the fields exist, without saving anything. Objects without a namespace go to default."),
     ta, out)];
 }
@@ -945,7 +976,7 @@ async function applyView() {
 
 async function clusterView() {
   const k = k8s.k;
-  const ctx = el("section.card", el("h2", "kubectl on your Mac"));
+  const ctx = el("section.card.info-card.k8s-card2", k8sHead("t6", "term", "kubectl on your Mac", null));
   if (k.currentContextError) {
     ctx.append(el("p", k.currentContextError + ". Colima wrote the context ", el("code", k.context), " to ~/.kube/config. This page does not need it: it runs kubectl inside the VM."), fixRow({ id: "kubectx", title: "kubectl", fix: "brew install kubectl", action: "terminal" }));
   } else if (k.currentContext !== k.context) {

@@ -92,6 +92,18 @@ type Hub struct {
 
 	mu   sync.Mutex
 	cols map[string]*collector
+	mac  *MacWatcher
+}
+
+// Mac returns what the whole Mac has been busy with lately ("why is it slow?").
+func (h *Hub) Mac() MacLoad {
+	h.mu.Lock()
+	if h.mac == nil {
+		h.mac = NewMacWatcher()
+	}
+	w := h.mac
+	h.mu.Unlock()
+	return w.Get()
 }
 
 // NewHub returns an empty hub.
@@ -715,4 +727,33 @@ func (h *Hub) GuestAverage(profile string, since time.Time) (cpu float64, mem ui
 		return 0, 0, false
 	}
 	return cpu / float64(n), uint64(memSum / float64(n)), true
+}
+
+// Latest returns the newest sample for a profile and its container names and images, without
+// marking the profile as watched: a Prometheus scrape reads what is there and starts nothing.
+// ok is false when there is no sample newer than maxAge.
+func (h *Hub) Latest(profile string, maxAge time.Duration) (s Sample, names, images map[string]string, ok bool) {
+	h.mu.Lock()
+	c := h.cols[profile]
+	h.mu.Unlock()
+	if c == nil {
+		return Sample{}, nil, nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.samples) == 0 {
+		return Sample{}, nil, nil, false
+	}
+	s = c.samples[len(c.samples)-1]
+	if time.Since(time.UnixMilli(s.T)) > maxAge {
+		return Sample{}, nil, nil, false
+	}
+	names, images = map[string]string{}, map[string]string{}
+	for k, v := range c.names {
+		names[k] = v
+	}
+	for k, v := range c.images {
+		images[k] = v
+	}
+	return s, names, images, true
 }

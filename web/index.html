@@ -9,8 +9,11 @@
 <meta name="style-nonce" content="{{STYLE_NONCE}}">
 <script src="/static/charts.js" defer></script>
 <script src="/static/logfmt.js" defer></script>
+<script src="/static/containers.js" defer></script>
+<script src="/static/report.js" defer></script>
 <script src="/static/app.js" defer></script>
 <script src="/static/k8s.js" defer></script>
+<script src="/static/palette.js" defer></script>
 </head>
 <body>
 <div id="splash" class="splash" aria-hidden="true">
@@ -35,6 +38,7 @@
       <a href="#containers" data-tab="containers">Containers</a>
       <a href="#runs" data-tab="runs">Runs and tests</a>
       <a href="#builds" data-tab="builds">Builds</a>
+      <a href="#report" data-tab="report">Report</a>
       <a href="#volumes" data-tab="volumes">Volumes</a>
       <a href="#ports" data-tab="ports">Port Forwarding</a>
       <a href="#images" data-tab="images">Images</a>
@@ -61,6 +65,7 @@
     <span class="sb-progress"><span id="sb-jobbar"></span></span>
     <span id="sb-jobtime" class="mono"></span>
   </button>
+  <button type="button" id="sb-theme" class="sb-theme" aria-label="Switch to dark mode" title="Switch to dark mode"></button>
 </footer>
 
 <section id="jobpanel" class="jobpanel" hidden aria-label="Running task">
@@ -68,8 +73,8 @@
   <header>
     <span id="jobtitle"></span>
     <span id="jobstate" class="pill"></span>
-    <button type="button" id="jobmin" class="ghost" aria-expanded="true">Minimise</button>
-    <button type="button" id="jobclose" class="ghost" aria-label="Close output">Close</button>
+    <button type="button" id="jobmin" class="ghost mini hbtn" aria-expanded="true">Minimise</button>
+    <button type="button" id="jobclose" class="ghost mini hbtn" aria-label="Close output">Close</button>
   </header>
   <pre id="joblog" class="log"></pre>
 </section>
@@ -89,7 +94,7 @@
   <div class="drawer-card" role="dialog" aria-modal="true" aria-labelledby="drawertitle">
     <header>
       <h2 id="drawertitle"></h2>
-      <button type="button" id="drawerclose" class="ghost">Close</button>
+      <button type="button" id="drawerclose" class="ghost mini hbtn">Close</button>
     </header>
     <div id="drawerbody" class="drawer-body"></div>
   </div>
