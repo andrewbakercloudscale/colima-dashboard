@@ -43,7 +43,7 @@ const ACTS = [
   ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
   ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
   ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward)\b/],
-  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan)\b/],
+  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|show|hide|reveal|full log|only this|download|copy|go to|container)\b/],
 ];
 function actOf(b) {
   const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
@@ -53,7 +53,7 @@ function actOf(b) {
 }
 const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact";
 function tagButtons(root = document) {
-  for (const b of root.querySelectorAll("button")) {
+  for (const b of root.querySelectorAll("button, a.btn")) {
     if (b.dataset.actFixed !== undefined || b.matches(NO_ACT)) continue;
     const a = actOf(b);
     if (b.dataset.act !== a) { if (a) b.dataset.act = a; else delete b.dataset.act; }
