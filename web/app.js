@@ -317,9 +317,25 @@ async function runJob(method, path, body, onDone) {
 
 // ---------- drawer (logs, inspect) ----------
 
+// Every drawer gets a coloured heading: an icon and what it is ("Inspect", "Logs"…) above the
+// name. A long id is shortened, with the whole of it in the tooltip.
+const DRAWER_KINDS = [
+  ["Inspect", "search", "t1"], ["VM logs", "logs", "t7"], ["Logs", "logs", "t7"], ["Shell", "shell", "t3"],
+  ["Volume", "disk", "t4"], ["Files", "folder", "t4"], ["Limits", "sliders", "t2"], ["Fix", "wrench", "t2"],
+  ["Pod", "wheel", "t1"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"],
+];
+function drawerTitle(title) {
+  const k = DRAWER_KINDS.find(([w]) => title.startsWith(w + ":") || title.startsWith(w + " "));
+  const kind = k ? k[0] : "", rest = k ? title.slice(kind.length).replace(/^:?\s*/, "") : title;
+  const name = /^[0-9a-f]{40,}$/.test(rest) ? rest.slice(0, 12) + "…" : rest;
+  const head = $("#drawertitle").closest("header");
+  head.className = `dhead ${k ? k[2] : "t1"}`;
+  $("#drawertitle").replaceChildren(chip(k ? k[1] : "box"),
+    el("span.dtitle", kind ? el("span.dkind", kind) : null, el("span.dname", { title: rest }, name)));
+}
 function openDrawer(title, ...content) {
   if (state.drawerCleanup) { state.drawerCleanup(); state.drawerCleanup = null; }
-  $("#drawertitle").textContent = title;
+  drawerTitle(title);
   $("#drawerbody").replaceChildren(...content);
   $("#drawer").hidden = false;
 }
@@ -433,6 +449,21 @@ const CHIP_PATHS = {
   mem: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 11v2M11 11v2M15 11v2M7 17v3M17 17v3"/>',
   disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   net: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/>',
+  logs: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  shell: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8V20h3.2l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+  wheel: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v6M12 14v6M4 12h6M14 12h6"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8" r="1.5"/>',
+  plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+  restart: '<path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
+  code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>',
   engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
 };
 function chip(name) {
@@ -764,7 +795,7 @@ async function showShell(id, name, opts) {
 function showFiles(id, name, kind = "container") {
   const base = kind === "volume" ? `${P()}/volumes/${encodeURIComponent(id)}` : `${P()}/containers/${encodeURIComponent(id)}`;
   const crumbs = el("nav.crumbs", { "aria-label": "Folder" });
-  const pathBox = el("input.mono", { type: "text", "aria-label": "Go to path", spellcheck: false });
+  const pathBox = el("input.mono", { type: "text", "aria-label": "Go to path", spellcheck: false, placeholder: "Type a path and press Enter" });
   const list = el("div.files");
   const viewer = el("div.viewer", { hidden: true });
   const dl = (p, kind) => el("a.btn.ghost.mini", { href: `${base}/download?path=${encodeURIComponent(p)}&kind=${kind}`, download: "" },
@@ -775,10 +806,9 @@ function showFiles(id, name, kind = "container") {
     viewer.hidden = true;
     list.replaceChildren(el("p.muted.small", "Loading…"));
     const parts = dir.split("/").filter(Boolean);
-    crumbs.replaceChildren(el("button.link", { type: "button", onclick: () => go("/") }, "/"),
-      // the root button is already "/", so the first folder needs no separator of its own
-      ...parts.flatMap((p, i) => [...(i ? [el("span.muted", "/")] : []),
-        el("button.link", { type: "button", onclick: () => go("/" + parts.slice(0, i + 1).join("/")) }, p)]));
+    crumbs.replaceChildren(el("button.link.crumb", { type: "button", onclick: () => go("/") }, chip("folder"), kind === "volume" ? "volume" : "/"),
+      ...parts.flatMap((p, i) => [el("span.crumb-sep", "›"),
+        el("button.link.crumb", { type: "button", onclick: () => go("/" + parts.slice(0, i + 1).join("/")) }, p)]));
     let d;
     try { d = await api("GET", `${base}/files?path=${encodeURIComponent(dir)}`); }
     catch (e) {
@@ -787,7 +817,8 @@ function showFiles(id, name, kind = "container") {
     }
     const kindOrder = { dir: 0, dirlink: 0, link: 1, file: 2 };
     d.entries.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.name.localeCompare(b.name));
-    const icon = (k) => el(`span.ficon.${k}`, k === "dir" ? "▸" : k === "dirlink" ? "↪▸" : k === "link" ? "↪" : "•");
+    const icon = (k) => { const c = chip(k === "dir" || k === "dirlink" ? "folder" : k === "link" ? "plug" : "file"); c.classList.add("ficon", k); return c; };
+    const biggest = Math.max(1, ...d.entries.map((f) => (f.kind === "file" ? f.size || 0 : 0)));
     const rows = d.entries.map((f) => {
       const p = join(d.path, f.name);
       const isDir = f.kind === "dir" || f.kind === "dirlink";
@@ -795,13 +826,14 @@ function showFiles(id, name, kind = "container") {
         ? () => go(p)
         : () => view(p, f);
       return el("tr",
-        el("td", icon(f.kind), " ", el("button.link.mono", { type: "button", onclick: open }, f.name)),
-        el("td.small.num", isDir ? "–" : bytes(f.size)),
+        el("td", el("span.fname", icon(f.kind), el("button.link.mono", { type: "button", onclick: open }, f.name))),
+        el("td.small.num", isDir ? el("span.muted", "folder") : el("span.fsize", bytes(f.size), el("span.fbar", { style: `--w:${Math.max(2, Math.round((f.size || 0) / biggest * 100))}%` }))),
         el("td.small.muted", f.modified ? new Date(f.modified * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "–"),
         el("td.actions", isDir ? dl(p, "dir") : dl(p, "file")));
     });
     list.replaceChildren(
-      el("div.files-head", el("span.muted.small", `${d.entries.length} item${d.entries.length === 1 ? "" : "s"}${d.truncated ? " (first 2000 shown)" : ""}`), dl(d.path, "dir")),
+      el("div.files-head", el("span.small", el("strong", String(d.entries.length)), ` item${d.entries.length === 1 ? "" : "s"}${d.truncated ? " (first 2000 shown)" : ""}`,
+        el("span.muted", ` · ${d.entries.filter((f) => f.kind === "dir" || f.kind === "dirlink").length} folders · ${bytes(d.entries.reduce((a, f) => a + (f.kind === "file" ? f.size || 0 : 0), 0))} in files`)), dl(d.path, "dir")),
       d.entries.length
         ? el("div.table-wrap", el("table.files-table",
           el("thead", el("tr", el("th", "Name"), el("th", "Size"), el("th", "Modified"), el("th"))),
@@ -822,7 +854,7 @@ function showFiles(id, name, kind = "container") {
     } catch (e) { viewer.replaceChildren(el("p.bad-text", e.message)); }
   };
   pathBox.addEventListener("keydown", (e) => { if (e.key === "Enter" && pathBox.value.startsWith("/")) go(pathBox.value); });
-  openDrawer(kind === "volume" ? `Volume: ${name}` : `Files: ${name}`, el("div.files-bar", crumbs, pathBox), viewer, list);
+  openDrawer(kind === "volume" ? `Volume: ${name}` : `Files: ${name}`, el("div.files-bar", crumbs, pathBox), viewer, el("div.files-card", list));
   go("/");
 }
 
@@ -847,14 +879,27 @@ async function showInspect(id, name) {
     ]);
     const cfg = doc.Config || {};
     const host = doc.HostConfig || {};
+    const st = doc.State || {};
     const parts = [];
-    if (stats && doc.State?.Running) parts.push(liveStats(id, stats));
-    parts.push(el("div.card", el("h2", "Container"), el("dl.kv",
+    const when = (s) => { const t = Date.parse(s || ""); return t > 0 ? t / 1000 : 0; };
+    const nets = Object.entries(doc.NetworkSettings?.Networks || {});
+    const tile = (hue, ic, label, value, tone) => el(`div.tile.${hue}${tone ? "." + tone : ""}`, chip(ic),
+      el("div.tile-text", el("span.tile-label", label), el("span.tile-value", value)));
+    const stateTone = st.Running ? "ok" : st.ExitCode ? "bad" : "";
+    parts.push(el("div.tiles.insp-tiles",
+      tile(st.Running ? "t3" : st.ExitCode ? "t8" : "t4", "pulse", "State", st.Running ? "Running" : `${st.Status || "stopped"}${st.ExitCode ? ` (exit ${st.ExitCode})` : ""}`, stateTone),
+      tile("t1", "clock", st.Running ? "Started" : "Stopped", st.Running ? (when(st.StartedAt) ? ago(when(st.StartedAt)) : "–") : (when(st.FinishedAt) ? ago(when(st.FinishedAt)) : "–")),
+      tile("t2", "restart", "Restarts", String(doc.RestartCount || 0)),
+      tile("t5", "pulse", "Health", st.Health?.Status || "no check"),
+      tile("t7", "net", "IP address", nets.map(([, n]) => n.IPAddress).filter(Boolean)[0] || "–")));
+    if (stats && st.Running) parts.push(liveStats(id, stats));
+    const cmd = [...(cfg.Entrypoint || []), ...(cfg.Cmd || [])].join(" ");
+    parts.push(el("div.card.info-card", cardHead("t1", "box", "Container", short(doc.Id)), el("dl.kv.kv-rows",
       el("dt", "Image"), el("dd.mono", cfg.Image || ""),
-      el("dt", "Command"), el("dd.mono", [...(cfg.Entrypoint || []), ...(cfg.Cmd || [])].join(" ") || "–"),
+      el("dt", "Command"), el("dd", cmd ? el("pre.code-block", cmd) : "–"),
       el("dt", "Restart policy"), el("dd", host.RestartPolicy?.Name || "no"),
-      el("dt", "Started"), el("dd", doc.State?.StartedAt || "–"),
-      el("dt", "Networks"), el("dd", Object.keys(doc.NetworkSettings?.Networks || {}).join(", ") || "–"))));
+      el("dt", "Started"), el("dd", st.StartedAt && when(st.StartedAt) ? new Date(st.StartedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" }) : "–"),
+      el("dt", "Networks"), el("dd", nets.length ? nets.map(([n]) => el("span.pill.soft", n)) : "–"))));
     const env = (cfg.Env || []).map((e) => {
       const i = e.indexOf("=");
       return [e.slice(0, i), e.slice(i + 1)];
@@ -868,24 +913,31 @@ async function showInspect(id, name) {
           val.textContent = hidden ? v : "••••••";
           btn.textContent = hidden ? "Hide" : "Show";
         });
-        return el("tr", el("td.mono", k), el("td", val), el("td.actions", btn));
+        return el("tr", el("td.mono.env-k", k), el("td", val), el("td.actions", btn));
       }));
-      parts.push(el("div.card", el("h2", "Environment"), el("p.small.muted", "Values are hidden until you show them: they often hold secrets."), el("table", tbody)));
+      parts.push(el("div.card.info-card", cardHead("t4", "key", "Environment", `${env.length} variable${env.length === 1 ? "" : "s"}`),
+        el("p.small.muted", "Values are hidden until you show them: they often hold secrets."), el("table.insp-table", tbody)));
     }
     const mounts = doc.Mounts || [];
     if (mounts.length) {
-      parts.push(el("div.card", el("h2", "Mounts"), el("table",
+      parts.push(el("div.card.info-card", cardHead("t2", "folder", "Mounts", String(mounts.length)), el("table.insp-table",
         el("thead", el("tr", ["Type", "Source", "Destination", "Mode"].map((h) => el("th", h)))),
         el("tbody", mounts.map((m) => el("tr", el("td", m.Type), el("td.mono.small", m.Name || m.Source), el("td.mono.small", m.Destination), el("td", m.RW ? "rw" : "ro")))))));
     }
     const ports = Object.entries(doc.NetworkSettings?.Ports || {});
     if (ports.length) {
-      parts.push(el("div.card", el("h2", "Ports"), el("dl.kv", ports.flatMap(([k, v]) => [el("dt.mono", k), el("dd.mono", (v || []).map((b) => `${b.HostIp || "0.0.0.0"}:${b.HostPort}`).join(", ") || "not published")]))));
+      parts.push(el("div.card.info-card", cardHead("t3", "plug", "Ports", String(ports.length)), el("dl.kv.kv-rows", ports.flatMap(([k, v]) => [el("dt.mono", k), el("dd.mono", (v || []).map((b) => `${b.HostIp || "0.0.0.0"}:${b.HostPort}`).join(", ") || el("span.muted", "not published"))]))));
     }
+    // Compose's own labels read better as a short "Compose" card; the rest stay as labels.
     const labels = Object.entries(cfg.Labels || {});
-    if (labels.length) {
-      parts.push(el("div.card", el("h2", "Labels"), el("dl.kv", labels.flatMap(([k, v]) => [el("dt.mono.small", k), el("dd.mono.small", v)]))));
+    const CP = "com.docker.compose.";
+    const compose = labels.filter(([k]) => k.startsWith(CP)), other = labels.filter(([k]) => !k.startsWith(CP));
+    const kvs = (rows, strip) => el("dl.kv.kv-rows.kv-small", rows.flatMap(([k, v]) => [el("dt.mono", strip ? k.slice(strip.length) : k), el("dd.mono", v === "" ? el("span.muted", "(empty)") : v)]));
+    if (compose.length) {
+      const get = (k) => compose.find(([x]) => x === CP + k)?.[1];
+      parts.push(el("div.card.info-card", cardHead("t5", "box", "Compose", [get("project"), get("service")].filter(Boolean).join(" / ")), kvs(compose, CP)));
     }
+    if (other.length) parts.push(el("div.card.info-card", cardHead("t6", "tag", "Labels", String(other.length)), kvs(other)));
     $("#drawerbody").replaceChildren(...parts);
   } catch (e) {
     $("#drawerbody").replaceChildren(el("div.notice.bad", e.message));
@@ -1515,10 +1567,13 @@ async function showVMLogs() {
     const logs = await api("GET", `${P()}/vmlogs`);
     const names = Object.keys(logs);
     if (!names.length) { $("#drawerbody").replaceChildren(el("p.muted", "No log files for this profile yet.")); return; }
-    $("#drawerbody").replaceChildren(...names.flatMap((n) => [
-      el("div.toolbar", el("h2", n), el("button.ghost.mini", { type: "button", onclick: () => download(`${state.profile}-${n}`, logs[n]) }, "Download")),
-      logBlock(logs[n]),
-    ]));
+    const HUES = ["t7", "t1", "t3", "t2", "t5"];
+    $("#drawerbody").replaceChildren(...names.map((n, i) => {
+      const lines = (logs[n].match(/\n/g) || []).length;
+      const head = cardHead(HUES[i % HUES.length], "logs", n, `${lines} line${lines === 1 ? "" : "s"} · ${bytes(logs[n].length)}`);
+      head.append(el("button.ghost.mini", { type: "button", onclick: () => download(`${state.profile}-${n}`, logs[n]) }, "Download"));
+      return el("div.card.info-card.vmlog-card", head, logBlock(logs[n]));
+    }));
   } catch (e) {
     $("#drawerbody").replaceChildren(el("div.notice.bad", e.message));
   }
