@@ -932,29 +932,110 @@ async function renderImages(main) {
   main.replaceChildren(head, buildCard(), body);
   const imgs = await api("GET", `${P()}/images`);
   if (!imgs.length) { body.replaceChildren(el("p.empty", "No images yet.")); return; }
-  const rows = [];
-  for (const i of imgs) {
+  const items = imgs.map((i) => {
     const tags = (i.RepoTags || []).filter((t) => t !== "<none>:<none>");
     const label = tags[0] || (i.RepoDigests?.[0] || "").split("@")[0] + " (untagged)";
-    rows.push(el("tr",
-      el("td", el("strong.mono", label), tags.length > 1 ? el("div.muted.small.mono", tags.slice(1).join(", ")) : null),
-      el("td.mono.small", short(i.Id)),
-      el("td", bytes(i.Size)),
-      el("td.small", ago(i.Created)),
-      el("td", i.Containers > 0 ? el("span.pill.running", `in use (${i.Containers})`) : el("span.pill", "unused")),
-      el("td.actions",
-        el("button.ghost.mini", { type: "button", onclick: () => scanImage(tags[0] || i.Id) }, "Scan"),
-        tags.length ? el("button.ghost.mini", { type: "button", onclick: () => pushImage(tags) }, "Push") : null,
-        el("button.ghost.mini.danger", { type: "button", onclick: () => removeImage(i, label) }, "Remove"))));
+    return { i, tags, label, hay: [...tags, label, short(i.Id)].map((t) => t.toLowerCase()) };
+  });
+  // picked maps an image ID to the tags to remove, or null for the whole image. When the filter
+  // matches only some of an image's tags (cdtest* on an image also tagged busybox), only those go.
+  const picked = new Map();
+  const pickTags = (x) => {
+    const m = imageMatcher(filter.value);
+    const hit = x.tags.filter((t) => m([t.toLowerCase()]));
+    return filter.value.trim() && hit.length && hit.length < x.tags.length ? hit : null;
+  };
+  const filter = el("input", { type: "search", placeholder: "Filter, e.g. shop* or *:dev", "aria-label": "Filter images", value: safeGet("ifilter") || "", size: 30 });
+  const all = el("input", { type: "checkbox", "aria-label": "Select all shown images" });
+  const count = el("span.small.muted");
+  const bulk = el("button.ghost.mini.danger", { type: "button", disabled: true }, "Remove selected");
+  const clear = el("button.ghost.mini", { type: "button", disabled: true }, "Clear");
+  const tbody = el("tbody");
+  let shown = [];
+  const sync = () => {
+    const n = picked.size;
+    const size = items.filter((x) => picked.has(x.i.Id) && !picked.get(x.i.Id)).reduce((a, x) => a + x.i.Size, 0);
+    count.textContent = n ? `${n} selected${size ? `, ${bytes(size)}` : ""}` : `${shown.length} of ${items.length} shown`;
+    bulk.disabled = clear.disabled = !n;
+    bulk.textContent = n ? `Remove ${n} selected` : "Remove selected";
+    const on = shown.filter((x) => picked.has(x.i.Id)).length;
+    all.checked = shown.length > 0 && on === shown.length;
+    all.indeterminate = on > 0 && on < shown.length;
+  };
+  const draw = () => {
+    safeSet("ifilter", filter.value);
+    const m = imageMatcher(filter.value);
+    shown = items.filter((x) => m(x.hay));
+    tbody.replaceChildren(...shown.map(({ i, tags, label }) => {
+      const box = el("input", { type: "checkbox", checked: picked.has(i.Id), "aria-label": `Select ${label}` });
+      box.addEventListener("change", () => { box.checked ? picked.set(i.Id, pickTags(items.find((x) => x.i.Id === i.Id))) : picked.delete(i.Id); sync(); });
+      return el("tr",
+        el("td.pick", box),
+        el("td", el("strong.mono", label), tags.length > 1 ? el("div.muted.small.mono", tags.slice(1).join(", ")) : null),
+        el("td.mono.small", short(i.Id)),
+        el("td", bytes(i.Size)),
+        el("td.small", ago(i.Created)),
+        el("td", i.Containers > 0 ? el("span.pill.running", `in use (${i.Containers})`) : el("span.pill", "unused")),
+        el("td.actions",
+          el("button.ghost.mini", { type: "button", onclick: () => scanImage(tags[0] || i.Id) }, "Scan"),
+          tags.length ? el("button.ghost.mini", { type: "button", onclick: () => pushImage(tags) }, "Push") : null,
+          el("button.ghost.mini.danger", { type: "button", onclick: () => removeImage(i, label) }, "Remove")));
+    }));
+    if (!shown.length) tbody.append(el("tr", el("td.muted", { colspan: 7 }, "No image matches the filter.")));
+    sync();
+  };
+  all.addEventListener("change", () => { for (const x of shown) all.checked ? picked.set(x.i.Id, pickTags(x)) : picked.delete(x.i.Id); draw(); });
+  clear.addEventListener("click", () => { picked.clear(); draw(); });
+  filter.addEventListener("input", draw);
+  bulk.addEventListener("click", () => removeImages(items.filter((x) => picked.has(x.i.Id)).map((x) => ({ ...x, only: picked.get(x.i.Id) }))));
+  body.replaceChildren(
+    el("div.toolbar.bulkbar", filter, count, el("span.grow"), clear, bulk),
+    el("table", el("thead", el("tr", el("th.pick", all), ...["Image", "ID", "Size", "Created", "Used by", ""].map((h) => el("th", h)))), tbody));
+  draw();
+}
+
+// imageMatcher turns the filter into a test over an image's names and ID. * and ? are wildcards
+// matched against a whole name ("shop*" is names starting with shop); without them it is a
+// plain "contains" match. Several words separated by spaces or commas match any of them.
+function imageMatcher(q) {
+  const words = q.toLowerCase().split(/[\s,]+/).filter(Boolean);
+  if (!words.length) return () => true;
+  const tests = words.map((w) => {
+    if (!/[*?]/.test(w)) return (h) => h.includes(w);
+    const re = new RegExp("^" + w.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+    return (h) => re.test(h);
+  });
+  return (hay) => tests.some((t) => hay.some(t));
+}
+
+// Each entry goes whole (by ID; an unused image needs force when it has several tags, an image in
+// use is never forced) or, when x.only lists tags, just those tags are removed and the image stays.
+async function removeImages(list) {
+  const whole = list.filter((x) => !x.only);
+  const inUse = whole.filter((x) => x.i.Containers > 0);
+  const size = whole.reduce((a, x) => a + x.i.Size, 0);
+  const label = (x) => x.only ? `${x.only.join(", ")} (tag${x.only.length === 1 ? "" : "s"} only; ${x.tags.filter((t) => !x.only.includes(t)).join(", ")} stays)` : x.label;
+  const names = list.slice(0, 8).map(label).join("; ") + (list.length > 8 ? `; and ${list.length - 8} more` : "");
+  if (!await confirmBox(`Remove ${list.length} image${list.length === 1 ? "" : "s"}${size ? ` (${bytes(size)})` : ""}?`,
+    `${names}.${inUse.length ? ` ${inUse.length} ${inUse.length === 1 ? "is" : "are"} used by containers and will be skipped unless those containers are removed first.` : ""}`,
+    "Remove", true)) return;
+  let ok = 0; const failed = [];
+  for (const x of list) {
+    try {
+      if (x.only) for (const t of x.only) await api("DELETE", `${P()}/images/${encodeURIComponent(t)}`);
+      else await api("DELETE", `${P()}/images/${encodeURIComponent(x.i.Id)}${x.i.Containers > 0 ? "" : "?force=1"}`);
+      ok++;
+    }
+    catch (e) { failed.push(`${x.label}: ${e.message}`); }
   }
-  body.replaceChildren(el("table",
-    el("thead", el("tr", ["Image", "ID", "Size", "Created", "Used by", ""].map((h) => el("th", h)))), el("tbody", rows)));
+  toast(failed.length ? `Removed ${ok}; ${failed.length} not removed. ${failed[0]}` : `Removed ${ok} of ${list.length}`, failed.length > 0);
+  render();
 }
 
 async function removeImage(i, label) {
   const inUse = i.Containers > 0;
   if (!await confirmBox(`Remove ${label}?`, inUse ? "Containers use this image; remove them first, or the engine refuses." : "The image is deleted from this profile; pull it again to get it back.", "Remove", true)) return;
-  try { await api("DELETE", `${P()}/images/${encodeURIComponent(i.Id)}`); toast(`Removed ${label}`); render(); } catch (e) { toast(e.message, true); }
+  try { await api("DELETE", `${P()}/images/${encodeURIComponent(i.Id)}${inUse ? "" : "?force=1"}`); toast(`Removed ${label}`); render(); } catch (e) { toast(e.message, true); }
 }
 
 async function pruneImages() {

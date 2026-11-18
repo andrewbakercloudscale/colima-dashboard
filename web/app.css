@@ -582,3 +582,9 @@ details.card summary { cursor: pointer; }
 .field-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
 .muted-row { opacity: 0.55; }
 @media (max-width: 720px) { .snap-new { flex-wrap: wrap; } .snap-new input { flex-basis: 100%; } }
+
+/* Images: filter and bulk selection */
+.bulkbar { margin-bottom: 8px; flex-wrap: wrap; }
+.bulkbar .grow { flex: 1; }
+th.pick, td.pick { width: 28px; padding-right: 0; }
+th.pick input, td.pick input { width: 16px; height: 16px; margin: 0; vertical-align: middle; cursor: pointer; }
