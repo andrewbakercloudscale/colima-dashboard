@@ -182,7 +182,36 @@ async function drawK8sView(body, quiet) {
 
 async function overviewView() {
   const ov = await loadOverview();
-  return [issuesCard(ov), ...ov.nodes.map(nodeCard), ov.nodesError ? el("div.notice.bad", ov.nodesError) : null, warningsCard(ov)].filter(Boolean);
+  return [k8sSummary(ov), issuesCard(ov), ...ov.nodes.map(nodeCard), ov.nodesError ? el("div.notice.bad", ov.nodesError) : null, warningsCard(ov)].filter(Boolean);
+}
+
+// k8sSummary: the numbers a developer checks first: how many pods are healthy, which are
+// crashing or stuck, restarts, pods with no memory limit, and live use against the node.
+function k8sSummary(ov) {
+  const box = sumBox();
+  const pods = ov.pods.filter((p) => nsShown(p.namespace));
+  const ready = (p) => { const [a, b] = String(p.ready || "0/0").split("/").map(Number); return b > 0 && a === b; };
+  const running = pods.filter((p) => p.phase === "Running" && ready(p)).length;
+  const crashing = pods.filter((p) => /CrashLoop|Error|OOM/i.test(p.reason || "")).length;
+  const pending = pods.filter((p) => p.phase === "Pending").length;
+  const restarts = pods.reduce((n, p) => n + (p.restarts || 0), 0);
+  const noLimit = pods.filter((p) => p.phase === "Running" && !p.memLim).length;
+  const workloads = new Set(pods.map((p) => p.workload).filter(Boolean)).size;
+  const fails = ov.issues.filter((i) => nsShown(i.namespace) && i.severity === "fail").length;
+  const cpu = pods.reduce((n, p) => n + (p.cpuUse || 0), 0);
+  const mem = pods.reduce((n, p) => n + (p.memUse || 0), 0);
+  pageSummary(box, [
+    [`${running} of ${pods.length}`, "pods running and ready", "Pods in the Running phase with every container ready", running === pods.length ? "ok" : "warn"],
+    [workloads, workloads === 1 ? "workload" : "workloads", "Deployments, StatefulSets, DaemonSets and Jobs that own the pods shown"],
+    crashing ? [crashing, "crashing", "Pods in CrashLoopBackOff, Error or killed for memory", "bad"] : null,
+    pending ? [pending, "pending", "Pods waiting to be scheduled or to pull their image", "warn"] : null,
+    [restarts, restarts === 1 ? "restart" : "restarts", "Container restarts across the pods shown", restarts > 0 ? "warn" : "ok"],
+    [noLimit, "with no memory limit", "Running pods where a leak could take the whole node's memory", noLimit ? "warn" : "ok"],
+    [fails, fails === 1 ? "problem" : "problems", "Config issues marked as problems below", fails ? "bad" : "ok"],
+    ov.metrics ? [`${cpuFmt(cpu)} · ${memFmt(mem)}`, "live CPU and memory", "What the pods shown use right now (metrics-server)"] : null,
+    [(ov.warnings || []).length, "warning events", "Recent Warning events from the cluster", (ov.warnings || []).length ? "warn" : "ok"],
+  ]);
+  return box;
 }
 
 function issuesCard(ov) {

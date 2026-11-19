@@ -663,10 +663,31 @@ async function renderContainers(main) {
   const imageBar = onlyImage ? el("div.notice.img-only",
     el("span", "Containers made from ", el("strong.mono", state.route.params.label || short(onlyImage))),
     el("a.btnlink", { href: "#containers" }, "Show all containers")) : null;
-  main.replaceChildren(...[head, imageBar, body].filter(Boolean));
+  const sum = sumBox();
+  main.replaceChildren(...[head, sum, imageBar, body].filter(Boolean));
   const filter = $("#cfilter");
   let list = [];
+  const summarise = () => {
+    const cs = onlyImage ? list.filter((c) => c.ImageID === onlyImage) : list;
+    const run = cs.filter((c) => c.State === "running");
+    const crashed = cs.filter((c) => c.State !== "running" && (c.details?.oomKilled || ![0, 137, 143].includes(c.details?.exitCode ?? 0)));
+    const oom = cs.filter((c) => c.details?.oomKilled);
+    const unhealthy = run.filter((c) => /\(unhealthy\)/.test(c.Status || ""));
+    const noLimit = run.filter((c) => c.details && !c.details.memory);
+    const projects = new Set(cs.map((c) => c.Labels?.["com.docker.compose.project"]).filter(Boolean));
+    const ports = cs.reduce((a, c) => a + (c.Ports || []).filter((p) => p.PublicPort).length, 0);
+    pageSummary(sum, [
+      [run.length, `running of ${cs.length}`, `${cs.length - run.length} stopped`, run.length ? "ok" : ""],
+      [crashed.length, "exited with an error", "Stopped with a non-zero exit code (not a normal stop) or killed for memory", crashed.length ? "bad" : ""],
+      [oom.length, "out of memory", "Killed by the kernel for going over their memory limit", oom.length ? "bad" : ""],
+      [unhealthy.length, "unhealthy", "Running, but failing their health check", unhealthy.length ? "bad" : ""],
+      [noLimit.length, "running with no memory limit", "One of these can take all of the VM's memory", noLimit.length ? "warn" : ""],
+      [projects.size, "Compose projects"],
+      [ports, "published ports", "Ports reachable from your Mac"],
+    ]);
+  };
   const draw = () => {
+    summarise();
     const q = filter.value.trim().toLowerCase();
     safeSet("cfilter", filter.value);
     const rows = list.filter((c) => (!onlyImage || c.ImageID === onlyImage) && (!q || [c.Names.join(" "), c.Image, c.State, c.Labels?.["com.docker.compose.project"] || ""].join(" ").toLowerCase().includes(q)));
@@ -1161,7 +1182,29 @@ async function renderImages(main) {
   // Bloat grades arrive after the table; draw() picks them up when they do.
   const grades = new Map();
   let redraw = () => {};
-  main.replaceChildren(head, buildCard(), bloatSummaryCard((rows) => { for (const r of rows) grades.set(r.id, r); redraw(); }), body);
+  const sum = sumBox();
+  main.replaceChildren(head, sum, buildCard(), bloatSummaryCard((rows) => { for (const r of rows) grades.set(r.id, r); redraw(); }), body);
+  const summarise = () => {
+    if (!imgs.length) return;
+    const now = Date.now() / 1000;
+    const unused = imgs.filter((i) => !i.Running && !(i.Containers > 0));
+    const untagged = imgs.filter((i) => !(i.RepoTags || []).some((t) => t !== "<none>:<none>"));
+    const stale = imgs.filter((i) => !i.Running && (!i.LastUsed || now - i.LastUsed > 30 * DAY));
+    const latest = imgs.filter((i) => (i.RepoTags || []).some((t) => t.endsWith(":latest")));
+    const rated = [...cyber.byId.values()].filter((r) => r.summary);
+    const risky = rated.filter((r) => /[DF]/.test(r.summary?.grade || ""));
+    const old = imgs.filter((i) => now - i.Created > 180 * DAY);
+    pageSummary(sum, [
+      [imgs.length, "images", `${imgs.length - unused.length} used by a container`],
+      [bytes(imgs.reduce((a, i) => a + i.Size, 0)), "total size", "Sum of image sizes; shared layers are counted once per image, so the disk use is lower"],
+      [unused.length, `unused · ${bytes(unused.reduce((a, i) => a + i.Size, 0))}`, "No container, running or stopped, uses these", unused.length ? "warn" : ""],
+      [untagged.length, "untagged", "Dangling images left by rebuilds; Prune unused removes them", untagged.length ? "warn" : ""],
+      [stale.length, "not used in 30 days", "Never seen in use, or last used over 30 days ago"],
+      [old.length, "built over 6 months ago", "Old base images miss security fixes", old.length ? "warn" : ""],
+      [latest.length, ":latest tags", "A :latest tag changes under you; pin a version for repeatable builds"],
+      rated.length ? [`${risky.length} of ${rated.length}`, "rated D or F", "Images with a critical or high vulnerability (Cyber risk)", risky.length ? "bad" : "ok"] : null,
+    ]);
+  };
   // Cyber risk ratings come from the saved Trivy results; nothing is scanned unless asked.
   const cyber = { byId: new Map(), loaded: false, trivy: true, scan: {} };
   const recalc = el("button.mini", { type: "button", "data-act": "go", "data-act-fixed": "", title: "Scan every image with Trivy again and regrade it" }, "Recalculate Cyber Risk");
@@ -1219,6 +1262,7 @@ async function renderImages(main) {
     all.indeterminate = on > 0 && on < shown.length;
   };
   const draw = () => {
+    summarise();
     safeSet("ifilter", filter.value);
     const m = imageMatcher(filter.value);
     shown = items.filter((x) => m(x.hay));
@@ -1326,8 +1370,23 @@ async function renderVolumes(main) {
         ref_count: v.UsageData ? v.UsageData.RefCount : "", used_by: v.usedBy.join(" "), created: v.CreatedAt || "", mountpoint: v.Mountpoint || "" })))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
-  main.replaceChildren(head, body);
+  const sum = sumBox();
+  main.replaceChildren(head, sum, body);
   vols = await api("GET", `${P()}/volumes`);
+  {
+    const size = (v) => (v.UsageData && v.UsageData.Size > 0 ? v.UsageData.Size : 0);
+    const unused = vols.filter((v) => !v.usedBy.length);
+    const anon = vols.filter((v) => /^[0-9a-f]{64}$/.test(v.Name));
+    const big = vols.reduce((m, v) => (size(v) > size(m || {}) ? v : m), null);
+    const total = vols.reduce((a, v) => a + size(v), 0);
+    pageSummary(sum, [
+      [vols.length, "volumes", `${vols.length - anon.length} named, ${anon.length} anonymous`],
+      [bytes(total), "total size", "Space the volumes take inside the VM"],
+      [unused.length, `unused · ${bytes(unused.reduce((a, v) => a + size(v), 0))}`, "No container uses these; Prune unused frees this space", unused.length ? "warn" : ""],
+      [anon.length, "anonymous", "Unnamed volumes, usually left behind by docker run or Compose; most can go", anon.length > 10 ? "warn" : ""],
+      big && size(big) ? [bytes(size(big)), "largest", big.Name] : null,
+    ]);
+  }
   if (!vols.length) { body.replaceChildren(el("p.empty", "No volumes.")); return; }
   body.replaceChildren(el("table",
     el("thead", el("tr", ["Name", "Size", "Used by", "Created", ""].map((h) => el("th", h)))),
@@ -1374,6 +1433,16 @@ async function renderSnapshots(main) {
   main.replaceChildren(head, save, listCard);
   let list;
   try { list = await api("GET", `${P()}/snapshots`); } catch (e) { listCard.replaceChildren(el("h2", "Saved"), el("div.notice.bad", e.message)); return; }
+  if (list.length) {
+    const newest = list.reduce((m, x) => (Date.parse(x.created) > Date.parse(m.created) ? x : m));
+    const sum = sumBox();
+    save.before(pageSummary(sum, [
+      [list.length, "snapshots", `${list.filter((x) => !x.auto).length} saved by you`],
+      [list.filter((x) => x.auto).length, "automatic", "Saved before a restore, so it can be undone"],
+      [ago(Date.parse(newest.created) / 1000), "newest", newest.name],
+      [list.filter((x) => Date.now() - Date.parse(x.created) > 30 * DAY * 1000).length, "older than 30 days", "Old snapshots still hold disk space for everything that changed since"],
+    ]));
+  }
   if (!list.length) { listCard.replaceChildren(el("h2", "Saved"), el("p.muted", "No snapshots yet.")); return; }
   const restore = async (sn) => {
     if (!await confirmBox(`Restore "${sn.name}"?`, `Profile ${state.profile} goes back to how it was on ${new Date(sn.created).toLocaleString()}. Anything since then is replaced; the current state is saved first as an automatic snapshot, so you can undo this.`, "Restore", true)) return;
@@ -1575,7 +1644,8 @@ async function renderDiagnostics(main) {
     el("div", el("h1", "Diagnostics"), el("p.muted", "Checks for the usual Colima problems, each with its fix.")),
     el("div.toolbar", el("button.ghost", { type: "button", onclick: () => render() }, "Run again")));
   const checks = el("div.card", el("p.muted", "Checking…"));
-  main.replaceChildren(head, checks, supportBundleCard());
+  const sum = sumBox();
+  main.replaceChildren(head, sum, checks, supportBundleCard());
   const list = await api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`);
   setDiagBadge(list);
   const showMuted = el("input", { type: "checkbox", checked: safeGet("showMuted") === "1" });
@@ -1583,6 +1653,16 @@ async function renderDiagnostics(main) {
     const muted = mutedSet();
     const visible = list.filter((c) => showMuted.checked || !muted.has(muteKey(c)));
     const hidden = list.length - visible.length;
+    const live = list.filter((c) => !muted.has(muteKey(c)));
+    const n = (st) => live.filter((c) => c.state === st).length;
+    const fixable = live.filter((c) => (c.state === "fail" || c.state === "warn") && (c.fix || c.action)).length;
+    pageSummary(sum, [
+      [n("pass"), `passed of ${list.length}`, "", n("pass") === live.length ? "ok" : ""],
+      [n("fail"), "failing", "Something is broken", n("fail") ? "bad" : ""],
+      [n("warn"), "warnings", "Works, but worth fixing", n("warn") ? "warn" : ""],
+      [fixable, "with a fix button", "Problems you can fix from this page"],
+      [list.length - live.length, "muted", "Checks you chose to hide"],
+    ]);
     checks.replaceChildren(
       el("div.card-head", el("span.muted.small", hidden ? `${hidden} muted check${hidden === 1 ? "" : "s"} hidden` : `${list.length} checks`),
         el("label.check.small", showMuted, "Show muted")),
@@ -1624,7 +1704,17 @@ async function renderPorts(main) {
   const cCard = el("div.card", el("h2", "Containers"), el("p.muted", "Loading…"));
   // colima reports kubernetes off when kubectl is missing on the Mac; the runtime still says k3s.
   const kCard = currentProfile()?.kubernetes || /k3s/.test(currentProfile()?.runtime || "") ? el("div.card", el("h2", "Kubernetes services"), el("p.muted", "Loading…")) : null;
-  main.replaceChildren(head, cCard, ...(kCard ? [kCard] : []));
+  const sum = sumBox();
+  main.replaceChildren(head, sum, cCard, ...(kCard ? [kCard] : []));
+  const tally = { ports: 0, containers: new Set(), all: 0, low: 0, k8sLocal: 0, k8sInside: 0 };
+  const summarise = () => pageSummary(sum, [
+    [tally.ports, "container ports on localhost", "Published ports of running containers"],
+    [tally.containers.size, "containers publishing"],
+    [tally.all, "open to your network", "Bound to all addresses, so other machines on your network can reach them too; bind to 127.0.0.1 to keep them private", tally.all ? "warn" : "ok"],
+    [tally.low, "below 1024", "Privileged port numbers; these often clash with Mac services"],
+    kCard ? [tally.k8sLocal, "Kubernetes ports on localhost", "LoadBalancer and NodePort services"] : null,
+    kCard ? [tally.k8sInside, "cluster-only ports", "Reach these with Forward…"] : null,
+  ]);
   const open = (port) => el("a", { href: `http://localhost:${port}`, target: "_blank", rel: "noopener noreferrer" }, `localhost:${port}`);
   try {
     const cs = await api("GET", `${P()}/containers`);
@@ -1635,6 +1725,9 @@ async function renderPorts(main) {
       for (const p of c.Ports || []) {
         if (!p.PublicPort || seen.has(p.PublicPort + p.Type)) continue;
         seen.add(p.PublicPort + p.Type);
+        tally.ports++; tally.containers.add(c.Id);
+        if (!p.IP || p.IP === "0.0.0.0" || p.IP === "::") tally.all++;
+        if (p.PublicPort < 1024) tally.low++;
         rows.push(el("tr",
           el("td", el("strong", (c.Names[0] || "").replace(/^\//, ""))),
           el("td", p.Type === "tcp" ? open(p.PublicPort) : el("span.mono", `localhost:${p.PublicPort}`)),
@@ -1642,6 +1735,7 @@ async function renderPorts(main) {
           el("td.small.muted", p.IP && p.IP !== "0.0.0.0" && p.IP !== "::" ? `bound to ${p.IP}` : "all addresses")));
       }
     }
+    summarise();
     cCard.replaceChildren(el("h2", "Containers"), rows.length
       ? el("table", el("thead", el("tr", ["Container", "On your Mac", "In the container", ""].map((h) => el("th", h)))), el("tbody", rows))
       : el("p.muted", "No running container publishes a port. Publish one with ", el("code", "docker run -p 8080:80 …"), "."));
@@ -1655,6 +1749,7 @@ async function renderPorts(main) {
     for (const s of svcs) {
       for (const p of s.ports || []) {
         const local = s.type === "LoadBalancer" ? p.port : s.type === "NodePort" ? p.nodePort : 0;
+        if (local) tally.k8sLocal++; else if (s.type !== "ExternalName") tally.k8sInside++;
         rows.push(el("tr",
           el("td", el("strong", s.name), el("div.muted.small", s.namespace)),
           el("td", s.type),
@@ -1663,6 +1758,7 @@ async function renderPorts(main) {
           el("td.actions", !local && s.type !== "ExternalName" ? el("button.ghost.mini", { type: "button", onclick: () => forwardDialog("service", s.namespace, s.name, [p.port]) }, "Forward…") : null)));
       }
     }
+    summarise();
     kCard.replaceChildren(el("h2", "Kubernetes services"), rows.length
       ? el("div.table-wrap", el("table", el("thead", el("tr", ["Service", "Type", "Port", "On your Mac", ""].map((h) => el("th", h)))), el("tbody", rows)))
       : el("p.muted", "No services."),
@@ -2477,6 +2573,15 @@ function shortBody(rows, n = 12) {
 function stat(value, label, title, tone) {
   return el(`div.stat${tone ? "." + tone : ""}`, { title: title || "" }, el("strong", value), el("span", label));
 }
+
+// pageSummary fills a page's summary strip: [value, label, title, tone] per tile, nulls skipped.
+function pageSummary(box, tiles) {
+  box.replaceChildren(...tiles.filter(Boolean).map(([v, l, t, tone]) => stat(String(v), l, t, tone)));
+  box.hidden = !box.childElementCount;
+  return box;
+}
+const sumBox = () => el("div.stat-row.page-sum", { hidden: true });
+const DAY = 86400;
 
 async function renderBuilds(main) {
   const days = Number(safeGet("builddays")) || 7;

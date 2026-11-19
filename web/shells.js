@@ -76,7 +76,15 @@ async function renderShells(main) {
   const k8sOn = currentProfile()?.kubernetes || /k3s/.test(currentProfile()?.runtime || "");
   const podList = el("div.sh-list", el("p.muted.small", "Loading…"));
   const podCard = k8sOn ? el("div.card.info-card", cardHead("t2", "layers", "Kubernetes pods", "running ones only"), podList) : null;
-  main.replaceChildren(head, recentBox, vm, ctrCard, podCard || "");
+  const sum = sumBox();
+  main.replaceChildren(head, sum, recentBox, vm, ctrCard, podCard || "");
+  const tally = { ctrs: null, pods: null, projects: 0 };
+  const summarise = () => pageSummary(sum, [
+    tally.ctrs === null ? null : [tally.ctrs, "running containers", "Each one can open a shell here"],
+    tally.ctrs === null ? null : [tally.projects, "Compose projects"],
+    podCard && tally.pods !== null ? [tally.pods, "running pods"] : null,
+    [shellRecent().length, "recent shells", "Shells you opened lately, one click to reopen"],
+  ]);
 
   let running = [];
   const drawRecent = () => {
@@ -112,13 +120,17 @@ async function renderShells(main) {
     running = all.filter((c) => c.State === "running" && !c.Labels?.["io.github.colima-dashboard.helper"])
       .sort((a, b) => a.Names[0].localeCompare(b.Names[0]));
     drawCtrs();
+    tally.ctrs = running.length;
+    tally.projects = new Set(running.map((c) => c.Labels?.["com.docker.compose.project"]).filter(Boolean)).size;
   } catch (e) { ctrList.replaceChildren(el("div.notice.bad", e.message)); }
   drawRecent();
+  summarise();
 
   if (!podCard) return;
   try {
     const ov = await api("GET", `${P()}/kubernetes/overview`);
     const pods = (ov.pods || []).filter((p) => p.phase === "Running").sort((a, b) => `${a.namespace}/${a.name}`.localeCompare(`${b.namespace}/${b.name}`));
+    tally.pods = pods.length; summarise();
     if (!pods.length) { podList.replaceChildren(el("p.empty", "No pods are running.")); return; }
     podList.replaceChildren(...pods.map((p) => el("div.sh-row.pod",
       el("span.sh-dot"),
