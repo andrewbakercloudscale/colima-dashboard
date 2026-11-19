@@ -217,6 +217,7 @@ ul([
 h3('Things Rancher Desktop never had');
 ul([
   '<strong>Things to fix on the first page:</strong> out of memory kills, containers at their limits, a VM short of CPU or memory, and log errors, each with a recommendation in real numbers and a button to apply it.',
+  '<strong>Summary on every page:</strong> totals, sizes, unused space, crashes, restarts, containers with no memory limit and ports open to your network, at the top of each page.',
   '<strong>Cyber risk:</strong> an A to F grade for every image and every component in it, cached until you press Recalculate Cyber Risk, with the version that fixes each one.',
   '<strong>Image bloat:</strong> a grade per image and the layers and files that make it big.',
   '<strong>Shells:</strong> every open shell into a container, pod or the VM on one page.',
