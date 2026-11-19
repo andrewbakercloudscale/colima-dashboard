@@ -41,6 +41,9 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 
 - Start, stop and restart profiles with a progress view instead of a wall of log lines.
 - Containers, images, volumes and port forwards in tables, with start, stop, remove and logs.
+- A summary strip at the top of every page: totals and sizes, unused space, crashes, restarts,
+  containers with no memory limit, ports open to your network and images rated D or F.
+- Images show when each was last used by a container, and an "in use" link to that container.
 - A shell into any running container in the page, and a file browser to view and download its
   files; volumes can be browsed too, even with no container using them.
 - A Shells page: a terminal in the Colima VM itself (root, like `colima ssh`), any running
@@ -48,7 +51,8 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Live stats per container (CPU, memory, network and disk I/O, processes).
 - Build an image from a folder on your Mac, push it, or scan it with Trivy.
 - Security: a CVE scan with Trivy of every image your containers use (or every image), with a
-  grade per image, charts by severity, each CVE with the version that fixes it, and what to do.
+  cyber risk grade per image and per component (cached, with a Recalculate Cyber Risk button),
+  charts by severity, each CVE with the version that fixes it, and what to do.
   Trivy installs with one click.
 - Image bloat: a grade for every image, where the space goes (layers, folders, biggest files),
   what wastes it (build tools with no multi-stage build, package caches, deleted files that still
@@ -60,7 +64,9 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Errors: error and warning lines from every container and Kubernetes pod in one list.
 - Report: runs, pass rate, errors, speed changes, resources and what is out of date, as
   Markdown or PDF.
-- Kubernetes: on or off, k3s version picker, Traefik on or off, workloads with logs, reset.
+- Kubernetes: on or off, k3s version picker, Traefik on or off, a pod and workload console with
+  logs, shells, YAML, port forwards, config issues with fixes, and reset.
+- Logs follow live with timestamps, reconnect by themselves after a restart, and say which end is newest.
 - Snapshots: save a stopped profile in a second (APFS clones) and roll back to it.
 - A menu bar icon with each profile's state, start and stop, and notifications when a test
   container or a build fails.
@@ -83,13 +89,21 @@ settings your IT team locks down centrally.
 
 ## Screenshots
 
+| General: things to fix, each with a button | Images: size, last used and cyber risk |
+|---|---|
+| ![General](docs/screenshots/general.png) | ![Images](docs/screenshots/images.png) |
+
+| Cyber risk per image and per component | Kubernetes: pods, crashes, restarts and fixes |
+|---|---|
+| ![Security](docs/screenshots/security.png) | ![Kubernetes](docs/screenshots/kubernetes.png) |
+
+| Containers summary | Volumes summary |
+|---|---|
+| ![Containers](docs/screenshots/containers.png) | ![Volumes](docs/screenshots/volumes.png) |
+
 | Diagnostics, each problem with its fix | Colour-coded VM logs |
 |---|---|
 | ![Diagnostics](docs/screenshots/diagnostics.png) | ![VM logs](docs/screenshots/logs.png) |
-
-| Preferences |
-|---|
-| ![Preferences](docs/screenshots/preferences.png) |
 
 ## Install
 
