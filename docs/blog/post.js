@@ -81,35 +81,42 @@ p('<strong>Shell</strong> opens a real terminal inside the container, in the pag
 img('shell.png', 'A shell into a running container, in the browser');
 img('files.png', 'Files: browse, read and download from inside a container');
 
-h3('Step 5: See how your tests are doing');
+h3('Step 5: Size, age and Cyber risk for every image');
+p('Images shows each image with its size, a <strong>bloat</strong> grade (how much of it is caches, docs and build leftovers you could drop, layer by layer), when it was <strong>last used</strong> (Docker does not record this, so the dashboard works it out from the containers made from it and remembers it after they are gone), and which containers use it now, one click away. The <strong>Cyber risk</strong> column grades each image from A to F with Trivy, by its riskiest component: F means a critical vulnerability that already has a fix, so upgrading that one package removes it.');
+img('images.png', 'Images: size, bloat, Cyber risk and when each image was last used');
+p('Security lists every image with its grade, its riskiest components and how many of its vulnerabilities have a fix. Open one and a Components card shows each package with its grade and the version to upgrade to. Scans are kept until you press <strong>Recalculate Cyber Risk</strong>, so the page is instant and nothing scans behind your back.');
+img('security.png', 'Security: a Cyber risk grade per image, its riskiest components and what to upgrade');
+
+h3('Step 6: See how your tests are doing');
 p('Every container that runs and exits is recorded, so test suites run in containers get a history for free, with nothing to install in your project. Runs and tests shows the pass rate, median and slowest 10% for each service, a trend bar per run, and flags for <strong>flaky</strong> tests (passing and failing on the same code), tests getting <strong>slower</strong>, and anything killed for running <strong>out of memory</strong>. In the demo, the integration suite fails about one run in four and is flagged flaky; the load test hits its 24 MB limit and is flagged out of memory.');
 img('runs.png', 'Runs and tests: pass rates, timings, trends and flaky, slower and out of memory flags');
 
 p('A test killed for memory gets a <strong>Fix</strong> button right on its row: it shows the limit it ran with, the memory it reached and a recommended limit, and for a Compose service, the line to put in your compose file.');
 
-h3('Step 6: Keep an eye on your builds');
+h3('Step 7: Keep an eye on your builds');
 p('Builds reads BuildKit\'s own history: every image build, how long it took, how many steps came from cache, and, when one fails, the step and the error, without digging through terminal scrollback. Each image gets a trend, and a build that has become noticeably slower than its usual is flagged.');
 img('builds.png', 'Builds: time, cache hits, trend and the exact error for a failed build');
 
-h3('Step 7: Look back over days, not minutes');
+h3('Step 8: Look back over days, not minutes');
 p('<strong>Report</strong> turns that history into one page you can download as Markdown or save as a PDF: runs per day split into passed, failed and out of memory; the pass rate for tests and builds; errors per day; why things failed, with exit codes explained in plain English; test and build durations with slowdowns flagged; the jobs causing the most trouble; CPU, memory and disk trends; and an Out of date card for old images, <code>:latest</code> tags, dangling images and tools that are behind.');
 img('report.png', 'Report: runs, pass rate, errors, speed changes, resources and what is out of date, over 1, 7 or 30 days');
 p('Monitor also keeps 30 days of history on your Mac: the Mac CPU and memory the VM used, its disk on your Mac, Docker\'s disk use and the number of running containers, and, once it has a day of history, a forecast of when the VM disk fills up. Switch between 1 day, 7 days and 30 days at the top. It samples every 5 minutes while the dashboard runs, with the page open or not, and nothing leaves your Mac.');
 
-h3('Step 8: Every error, from every container and pod, on one page');
+h3('Step 9: Every error, from every container and pod, on one page');
 p('The <strong>Errors</strong> page reads the logs of every container and every Kubernetes pod and keeps only the error and warning lines, newest first. It understands the usual formats: <code>level=error</code>, JSON <code>"level":"error"</code>, nginx <code>[error]</code>, Kubernetes <code>E1118</code> lines, Python tracebacks, panics and out of memory kills, and it ignores lines like "0 errors". A chart shows when they happened, a table shows who logged them, and one click narrows the list to one source or opens its full log. Pick 15 minutes, an hour, 6 hours or a day. The sidebar badge counts errors from the last 15 minutes, and General lists them under things to fix, so you see them without opening the page.');
 img('errors.png', 'Errors: error and warning lines from every container and pod, when they happened and who logged them');
 
-h3('Step 9: When something goes wrong, press Fix');
+h3('Step 10: When something goes wrong, press Fix');
 p('Diagnostics runs about 15 checks, from the Docker context and the credential helper to kubectl, stale Rancher Desktop files and company proxy certificates. A missing tool such as kubectl, buildx or Compose has an <strong>Install</strong> button that runs Homebrew for you and shows its progress. Every other problem has a Fix button that opens Terminal with the exact command, so you can see what it does before it runs. The sidebar badge counts open problems, and failing tests, builds and out of memory kills also arrive as macOS notifications and in the optional menu bar icon.');
 img('diagnostics.png', 'Diagnostics: each problem found, with its fix one click away');
 
-h3('Step 10: Kubernetes and snapshots, when you need them');
+h3('Step 11: Kubernetes and snapshots, when you need them');
 p('Kubernetes is off until you want it. Then one switch turns on k3s and a picker chooses the version. The Kubernetes page is a small console: pods with their requests, limits and live use; the usual configuration problems (no limits, out of memory, CPU throttled, pending, missing probes, <code>:latest</code> images), each with a Fix that shows now and recommended side by side; events and warnings; Deployments, StatefulSets and DaemonSets with scale, restart and roll back; YAML you can view, edit and apply with a dry run first; a shell into any pod; and port forwards to your Mac. Snapshots save a stopped profile in about a second as an APFS clone, so you can try something risky and roll back.');
-img('kubernetes.png', 'Kubernetes: version, Traefik, workloads and reset');
+img('kubernetes.png', 'Kubernetes: pods with live use, crash loops and out of memory kills flagged, each with a Fix');
+img('k8s-pod.png', 'One pod: status, its containers\' requests and limits, logs of the last run, a shell and port forwards');
 img('snapshots-bench.png', 'Snapshots: save and restore a whole profile in seconds');
 
-h3('Step 11: Prove it with stress-ng');
+h3('Step 12: Prove it with stress-ng');
 p(`The repository has a set of <a href="${REPO}/tree/main/examples/stress-ng">stress-ng scenarios in containers</a> that each break something on purpose. Run <code>./run.sh</code> in that folder and open General: within a minute everything appears there by itself, with no searching.`);
 ul([
   '<strong>cpu-hog</strong> runs every VM CPU at 100% for 5 minutes: "High CPU in the VM, 2 CPUs 100% busy on average over 60 seconds", with a button to set 4 CPUs.',
@@ -201,7 +208,7 @@ ul([
   '<strong>Containers, Images, Volumes, Port Forwarding:</strong> the everyday lists, with start, stop, logs, inspect and remove, Compose projects grouped together.',
   '<strong>A shell and a file browser</strong> for any running container, in the page. Volumes can be browsed too, even when no container uses them.',
   '<strong>Live stats</strong> per container: CPU, memory, network and disk I/O, and its processes.',
-  '<strong>Images:</strong> pull, build from a folder on your Mac, push, and scan with Trivy.',
+  '<strong>Images:</strong> pull, build from a folder on your Mac, push, and scan with Trivy, plus when each image was last used and which containers use it.',
   '<strong>Kubernetes:</strong> on or off, a k3s version picker, Traefik on or off, and a console: pods with live use and fixes, events, scale, restart and roll back, YAML editing with a dry run, pod shells and port forwards.',
   '<strong>Snapshots:</strong> save a stopped profile and roll back to it. They are APFS clones, so saving takes a second and uses almost no disk.',
   '<strong>A menu bar icon</strong> with each profile\'s state and start and stop, and notifications.',
@@ -210,6 +217,9 @@ ul([
 h3('Things Rancher Desktop never had');
 ul([
   '<strong>Things to fix on the first page:</strong> out of memory kills, containers at their limits, a VM short of CPU or memory, and log errors, each with a recommendation in real numbers and a button to apply it.',
+  '<strong>Cyber risk:</strong> an A to F grade for every image and every component in it, cached until you press Recalculate Cyber Risk, with the version that fixes each one.',
+  '<strong>Image bloat:</strong> a grade per image and the layers and files that make it big.',
+  '<strong>Shells:</strong> every open shell into a container, pod or the VM on one page.',
   '<strong>Errors:</strong> error and warning lines from every container and pod in one list, with when and who.',
   '<strong>Report:</strong> runs, pass rate, errors, speed changes, resources and what is out of date over 1, 7 or 30 days, as Markdown or PDF.',
   '<strong>Why is it slow?</strong> What the whole Mac is busy with, with the Colima VM marked.',

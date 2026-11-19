@@ -54,6 +54,8 @@ type Report struct {
 	Grade   string         `json:"grade"`
 	Advice  []Advice       `json:"advice"`
 	Vulns   []Vuln         `json:"vulns"`
+	// Components are the packages with findings, each with its own grade, worst first.
+	Components []Component `json:"components,omitempty"`
 }
 
 type trivyJSON struct {
@@ -133,6 +135,7 @@ func Parse(data []byte) (*Report, error) {
 	})
 	rep.Grade = grade(rep)
 	rep.Advice = advise(rep)
+	rep.EnsureComponents()
 	return rep, nil
 }
 
@@ -339,6 +342,10 @@ type Summary struct {
 	Total   int            `json:"total"`
 	Grade   string         `json:"grade"`
 	Top     string         `json:"top,omitempty"` // the first piece of advice
+	// Components: how many packages have findings, how many got each grade, and the worst few.
+	Components      int            `json:"components"`
+	ComponentGrades map[string]int `json:"componentGrades,omitempty"`
+	WorstComponents []Component    `json:"worstComponents,omitempty"`
 }
 
 // Summarise drops the list.
@@ -346,6 +353,15 @@ func (r *Report) Summarise() Summary {
 	s := Summary{OS: r.OS, EOL: r.EOL, Counts: r.Counts, Fixable: r.Fixable, Total: r.Total, Grade: r.Grade}
 	if len(r.Advice) > 0 {
 		s.Top = r.Advice[0].Title
+	}
+	s.ComponentGrades = r.componentCounts()
+	s.Components = len(r.Components)
+	for _, c := range r.Components {
+		if len(s.WorstComponents) == 3 || c.Grade == "A" {
+			break
+		}
+		c.Counts = nil // the summary needs the name, version and grade only
+		s.WorstComponents = append(s.WorstComponents, c)
 	}
 	return s
 }

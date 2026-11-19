@@ -54,6 +54,9 @@ const KIND_TONE = { Deployment: "info", StatefulSet: "purple", DaemonSet: "go", 
 
 // ---------- formatting ----------
 
+// CPU and memory side by side, or "none" when neither is set.
+function pair(cpu, mem) { return cpu || mem ? `${cpuFmt(cpu)} · ${memFmt(mem)}` : "none"; }
+
 function cpuFmt(m) {
   if (!m) return "–";
   return m >= 1000 ? `${(m / 1000).toFixed(2).replace(/\.?0+$/, "")} CPU` : `${m}m`;
@@ -508,8 +511,8 @@ async function openPod(p) {
       el("td", el(`span.pill.${c.state === "running" && c.ready ? "ok" : c.reason && c.reason !== "Completed" ? "fail" : "warn"}`, c.reason || c.state || "unknown"),
         c.restarts ? el("div.small.muted", `${c.restarts} restarts`) : null,
         c.lastReason ? el("div.small.muted", `last run: ${c.lastReason}, exit ${c.lastExit}`) : null),
-      el("td.small.nowrap", `${cpuFmt(c.cpuReq)} · ${memFmt(c.memReq)}`),
-      el("td.small.nowrap", `${cpuFmt(c.cpuLim)} · ${memFmt(c.memLim)}`),
+      el("td.small.nowrap", pair(c.cpuReq, c.memReq)),
+      el("td.small.nowrap", pair(c.cpuLim, c.memLim)),
       el("td.small.nowrap", p.hasUsage ? `${cpuFmt(c.cpuUse)} · ${memFmt(c.memUse)}` : "–"),
       el("td.small", [c.readiness ? "readiness" : null, c.liveness ? "liveness" : null].filter(Boolean).join(", ") || el("span.bad-text", "none")))))));
   const [wkind, wname] = (p.workload || "").split("/");
@@ -554,6 +557,7 @@ function showPodLogs(p, previous) {
       if (log.childNodes.length > 5000) log.firstChild.remove();
       if (atBottom) log.scrollTop = log.scrollHeight;
     });
+    src.addEventListener("note", (e) => log.append(el("span.muted", JSON.parse(e.data) + "\n")));
     src.addEventListener("done", () => { src.close(); if (!lines.length) log.append(el("span.muted", "No output.\n")); });
     src.addEventListener("failed", (e) => { src.close(); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
   };

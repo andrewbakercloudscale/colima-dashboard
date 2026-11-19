@@ -334,3 +334,18 @@ func TestColimaCommand(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+func TestDurTextUnits(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		time.Second:                     "1 second",
+		45 * time.Second:                "45 seconds",
+		5 * time.Minute:                 "5 minutes",
+		5 * time.Hour:                   "5 hours",
+		3 * 24 * time.Hour:              "3 days",
+		89*time.Minute + 59*time.Second: "90 minutes",
+	} {
+		if got := durText(d); got != want {
+			t.Errorf("%v: got %q, want %q", d, got, want)
+		}
+	}
+}

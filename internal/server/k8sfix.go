@@ -330,7 +330,7 @@ func planFor(is K8sIssue, pods map[string]*Pod, nodes []Node, metrics bool) *K8s
 				"Then change it deliberately when you want an upgrade, and use Roll back if the new one misbehaves."}}
 	case "crashloop", "restarts":
 		return &K8sPlan{Kind: "steps", Container: c.Name, Why: "Kubernetes can restart it but cannot tell why it exits; the logs of the run that ended say.",
-			Steps: []string{"Open the logs of the last run (the button below) and read the last lines before it stopped.",
+			Steps: []string{"Open the logs of the last run (the button above) and read the last lines before it stopped.",
 				"An exit code of 1 or 2 is usually the app refusing to start: a missing environment variable, config file or secret.",
 				"Exit code 137 without OOMKilled means something stopped it from outside, often a liveness probe that fails before the app is ready: give it a longer initialDelaySeconds.",
 				"A dependency it cannot reach (a database, a URL) shows as a connection error in the logs."}}

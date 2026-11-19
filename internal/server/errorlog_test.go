@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestLevelOf(t *testing.T) {
 	for line, want := range map[string]string{
@@ -19,6 +23,21 @@ func TestLevelOf(t *testing.T) {
 	} {
 		if got := levelOf(line); got != want {
 			t.Errorf("%q: got %q, want %q", line, got, want)
+		}
+	}
+}
+
+// A profile with no error lines must still send lists: the page crashed on "lines": null.
+func TestErrResponseEmptyListsAreArrays(t *testing.T) {
+	var r errResponse
+	r.fillEmpty()
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"lines":[]`, `"sources":[]`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("missing %s in %s", want, b)
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -78,7 +79,14 @@ func (s *Server) apiFix(w http.ResponseWriter, r *http.Request) {
 // openTerminal opens a Terminal window running cmd. The command goes in as an argument, not
 // spliced into the script, so no quoting can turn it into more AppleScript. The first time,
 // macOS asks whether Colima Dashboard may control Terminal.
+//
+// With COLIMA_DASHBOARD_NO_TERMINAL=1 it only logs the command, so automated UI tests can press
+// every button without opening Terminal windows on the person's screen.
 func openTerminal(cmd string) error {
+	if os.Getenv("COLIMA_DASHBOARD_NO_TERMINAL") == "1" {
+		log.Printf("Terminal not opened (COLIMA_DASHBOARD_NO_TERMINAL=1): %s", cmd)
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var stderr bytes.Buffer

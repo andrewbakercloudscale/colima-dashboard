@@ -105,7 +105,7 @@ func (s *Server) routes() {
 func (s *Server) apiOverview(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	out := map[string]any{"version": s.opt.Version, "jobs": s.jobs.List()}
+	out := map[string]any{"version": s.opt.Version, "build": s.assetHash(), "jobs": s.jobs.List()}
 	if v, err := s.opt.Colima.Version(ctx); err == nil {
 		out["colimaVersion"] = v
 	} else {
@@ -347,6 +347,7 @@ func (s *Server) apiImages(w http.ResponseWriter, r *http.Request) {
 		for i := range imgs {
 			imgs[i].Containers = use[imgs[i].ID]
 		}
+		s.fillLastUsed(r.Context(), r.PathValue("p"), dc, cs, imgs)
 	}
 	sort.Slice(imgs, func(i, j int) bool { return imgs[i].Created > imgs[j].Created })
 	if imgs == nil {

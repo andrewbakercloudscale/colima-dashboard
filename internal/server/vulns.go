@@ -30,7 +30,7 @@ func (s *Server) vulnRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/profiles/{p}/vulns/{id}", s.auth(s.apiVulnImage))
 }
 
-const vulnTTL = 24 * time.Hour
+// Results are kept until someone presses Recalculate Cyber Risk: nothing rescans on its own.
 
 type vulnEntry struct {
 	Report    *vuln.Report `json:"report"`
@@ -102,7 +102,7 @@ func (s *Server) loadVulns(p string) {
 		return
 	}
 	for id, e := range saved {
-		if e != nil && e.Report != nil && time.Since(e.ScannedAt) < 7*vulnTTL {
+		if e != nil && e.Report != nil {
 			vulnState.cache[p+"|"+id] = e
 		}
 	}
@@ -218,7 +218,6 @@ func (s *Server) apiVulns(w http.ResponseWriter, r *http.Request) {
 		*vulnTarget
 		Summary   *vuln.Summary `json:"summary"`
 		ScannedAt *time.Time    `json:"scannedAt"`
-		Stale     bool          `json:"stale"`
 	}
 	rows := make([]row, 0, len(targets))
 	vulnState.Lock()
@@ -227,7 +226,7 @@ func (s *Server) apiVulns(w http.ResponseWriter, r *http.Request) {
 		if e := vulnState.cache[p+"|"+t.ID]; e != nil {
 			sum := e.Report.Summarise()
 			at := e.ScannedAt
-			rw.Summary, rw.ScannedAt, rw.Stale = &sum, &at, time.Since(at) > vulnTTL
+			rw.Summary, rw.ScannedAt = &sum, &at
 		}
 		rows = append(rows, rw)
 	}
@@ -251,6 +250,9 @@ func (s *Server) apiVulnImage(w http.ResponseWriter, r *http.Request) {
 	s.loadVulns(p)
 	vulnState.Lock()
 	e := vulnState.cache[p+"|"+id]
+	if e != nil {
+		e.Report.EnsureComponents() // saved before components were worked out
+	}
 	vulnState.Unlock()
 	if e == nil {
 		writeError(w, http.StatusNotFound, errors.New("this image has not been scanned yet"))
@@ -314,7 +316,7 @@ func (s *Server) apiVulnScan(w http.ResponseWriter, r *http.Request) {
 	var todo []*vulnTarget
 	for _, t := range targets {
 		e := vulnState.cache[p+"|"+t.ID]
-		if body.Force || len(body.IDs) > 0 || e == nil || time.Since(e.ScannedAt) > vulnTTL {
+		if body.Force || len(body.IDs) > 0 || e == nil {
 			todo = append(todo, t)
 		}
 	}

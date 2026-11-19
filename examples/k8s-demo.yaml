@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: demo}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: demo}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: demo}
+spec:
+  selector: {app: web}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: web, namespace: demo}
+spec:
+  rules:
+    - host: web.demo.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: web, port: {number: 80}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: worker, namespace: demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: worker}}
+  template:
+    metadata: {labels: {app: worker}}
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.37
+          command: ["sh", "-c", "i=0; while true; do i=$((i+1)); echo \"job $i ok\"; [ $((i % 7)) -eq 0 ] && echo \"ERROR job $i failed: timeout talking to db\"; sleep 2; done"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: crashy, namespace: demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: crashy}}
+  template:
+    metadata: {labels: {app: crashy}}
+    spec:
+      containers:
+        - name: crashy
+          image: busybox:1.37
+          command: ["sh", "-c", "echo starting; echo 'ERROR cannot read /config/app.yaml: no such file'; exit 1"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hungry, namespace: demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: hungry}}
+  template:
+    metadata: {labels: {app: hungry}}
+    spec:
+      containers:
+        - name: hungry
+          image: busybox:1.37
+          command: ["sh", "-c", "head -c 120m /dev/zero | tail; sleep 5"]
+          resources:
+            limits: {memory: 48Mi}
