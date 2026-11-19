@@ -398,6 +398,7 @@ body.locked { display: grid; place-items: center; padding: 16px; }
 #nav .badge { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 99px; background: var(--badge-bad-bg); color: var(--badge-bad-fg); font-size: 12px; font-weight: 700; text-align: center; line-height: 18px; }
 /* the same bright amber and near-black text in both themes: --warn is dark brown in light mode */
 #nav .badge.warn { background: #f5b301; color: #1a1a1a; }
+#nav .badge small { font-size: 10px; font-weight: 600; opacity: .8; }
 #nav .nav-sep { margin-top: 10px; position: relative; }
 #nav .nav-sep::before { content: ""; position: absolute; left: 10px; right: 10px; top: -6px; border-top: 1px solid var(--line); }
 
