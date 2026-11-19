@@ -17,15 +17,18 @@ async function loadErrors(since) {
   return d;
 }
 
-// The sidebar badge: errors in the last 15 minutes.
+// The sidebar badge: errors in the last 15 minutes. The Errors page repeats its numbers so the two agree.
+let errBadgeData = null;
 async function refreshErrBadge() {
   const b = $("#errbadge");
   if (!b) return;
   if (!isRunning()) { b.hidden = true; return; }
   try {
     const d = await loadErrors(900);
+    errBadgeData = d;
     b.hidden = d.errors === 0 && d.warnings === 0;
-    b.textContent = String(d.errors || d.warnings);
+    // Say what the number is: errors (or warnings) in the last 15 minutes.
+    b.replaceChildren(String(d.errors || d.warnings), el("small", " · 15m"));
     b.className = d.errors ? "badge" : "badge warn";
     b.title = `${d.errors} errors, ${d.warnings} warnings in the last 15 minutes`;
   } catch { /* badge stays as it was */ }
@@ -66,6 +69,7 @@ async function renderErrors(main) {
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div", el("div.card", el("p.muted", "Reading logs…")));
   main.replaceChildren(head, body);
+  if (!errBadgeData) await refreshErrBadge(); // so the 15 minute tile matches the sidebar badge
 
   // The filter box lives across refreshes, so typing is not lost when the page redraws.
   const q = el("input", { type: "search", placeholder: "Filter lines", value: errState.q, "aria-label": "Filter lines" });
@@ -78,8 +82,9 @@ async function renderErrors(main) {
     const [a, b] = focused ? [q.selectionStart, q.selectionEnd] : [0, 0];
     const srcBy = Object.fromEntries(d.sources.map((s) => [s.key, s]));
     const tiles = el("div.err-tiles",
-      tile("Errors", d.errors, d.errors ? "bad" : "ok"),
-      tile("Warnings", d.warnings, d.warnings ? "warn" : "ok"),
+      tile(`Errors, last ${ERR_RANGES[since]}`, d.errors, d.errors ? "bad" : "ok", "lines that report an error"),
+      tile(`Warnings, last ${ERR_RANGES[since]}`, d.warnings, d.warnings ? "warn" : "ok", "lines that report a warning"),
+      since !== 900 && errBadgeData ? tile("Last 15 minutes", `${errBadgeData.errors} · ${errBadgeData.warnings}`, errBadgeData.errors ? "bad" : errBadgeData.warnings ? "warn" : "ok", "errors · warnings, the sidebar badge") : null,
       tile("Sources with errors", `${d.sources.filter((s) => s.errors).length} of ${d.scanned}`, d.sources.some((s) => s.errors) ? "bad" : "ok", "containers and pods"));
 
     // When: errors and warnings per bucket, 30 buckets over the range.
