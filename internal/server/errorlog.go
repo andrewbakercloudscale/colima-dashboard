@@ -98,6 +98,17 @@ func (s *Server) errorRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/profiles/{p}/errors", s.auth(s.apiErrors))
 }
 
+// fillEmpty makes empty lists go out as [], not null: the page loops over them, and a quiet
+// profile with no error lines at all is a normal state, not an edge case.
+func (r *errResponse) fillEmpty() {
+	if r.Lines == nil {
+		r.Lines = []errLine{}
+	}
+	if r.Sources == nil {
+		r.Sources = []*errSource{}
+	}
+}
+
 // apiErrors: ?since=<seconds> (default an hour, at most a week).
 func (s *Server) apiErrors(w http.ResponseWriter, r *http.Request) {
 	p := r.PathValue("p")
@@ -125,6 +136,7 @@ func (s *Server) apiErrors(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFor(err), err)
 		return
 	}
+	res.fillEmpty()
 	s.errs.mu.Lock()
 	if s.errs.m == nil {
 		s.errs.m = map[string]errResponse{}

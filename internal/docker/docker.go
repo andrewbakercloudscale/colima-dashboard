@@ -418,6 +418,11 @@ type Image struct {
 	Created    int64    `json:"Created"`
 	Size       int64    `json:"Size"`
 	Containers int64    `json:"Containers"`
+	// Filled in by the server: when a container last ran this image (unix seconds), which one,
+	// and whether one is running it now.
+	LastUsed   int64  `json:"LastUsed,omitempty"`
+	LastUsedBy string `json:"LastUsedBy,omitempty"`
+	Running    bool   `json:"Running,omitempty"`
 }
 
 // Images lists images.

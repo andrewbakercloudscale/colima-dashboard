@@ -949,12 +949,22 @@ func joinAnd(xs []string) string {
 	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
 }
 
+// durText says how long something lasted, in the one unit that reads naturally:
+// seconds, minutes, hours, then days (never "300 minutes").
 func durText(d time.Duration) string {
-	if d < 90*time.Second {
-		return fmt.Sprintf("%d seconds", int(d.Seconds()+0.5))
+	switch {
+	case d < 90*time.Second:
+		s := int(d.Seconds() + 0.5)
+		return fmt.Sprintf("%d %s", s, plural(float64(s), "second", "seconds"))
+	case d < 90*time.Minute:
+		m := int(d.Minutes() + 0.5)
+		return fmt.Sprintf("%d %s", m, plural(float64(m), "minute", "minutes"))
+	case d < 48*time.Hour:
+		h := int(d.Hours() + 0.5)
+		return fmt.Sprintf("%d %s", h, plural(float64(h), "hour", "hours"))
 	}
-	m := int(d.Minutes() + 0.5)
-	return fmt.Sprintf("%d %s", m, plural(float64(m), "minute", "minutes"))
+	days := int(d.Hours()/24 + 0.5)
+	return fmt.Sprintf("%d %s", days, plural(float64(days), "day", "days"))
 }
 
 func agoText(now, t time.Time) string {

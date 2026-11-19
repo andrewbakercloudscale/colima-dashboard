@@ -21,9 +21,25 @@ async function installTrivy(after) {
 async function startVulnScan(body, after) {
   try {
     const r = await api("POST", `${P()}/vulns/scan`, body);
-    toast(r.total ? `Scanning ${r.total} image${r.total === 1 ? "" : "s"}` : "Everything was scanned in the last day. Use Rescan all to scan again.");
+    toast(r.total ? `Working out the cyber risk of ${r.total} image${r.total === 1 ? "" : "s"}` : "Every image already has a rating. Use Recalculate Cyber Risk to work it out again.");
     after?.();
   } catch (e) { toast(e.message, true); }
+}
+
+// A grade button for an image's cyber risk, or a muted note when it has no rating yet.
+function cyberBadge(summary, id, label) {
+  if (!summary) return el("span.muted.small", "not rated");
+  const worst = (summary.worstComponents || []).map((c) => `${c.name} ${c.version} (${c.grade})`).join(", ");
+  return el("button.bl-gbtn", { type: "button", title: `${VULN_GRADE_WORDS[summary.grade] || ""}: ${summary.total} CVEs in ${summary.components} components${worst ? `. Worst: ${worst}` : ""}. Click for details.`,
+    onclick: () => showVulns(id, label) }, gradeBadge(summary.grade),
+  summary.total ? el("span.small.muted", `${summary.total} CVEs`) : el("span.small.muted", "clean"));
+}
+
+// The few riskiest components of an image, as small graded chips.
+function worstComponentChips(summary) {
+  const list = summary?.worstComponents || [];
+  return list.length ? el("div.vs-comps", list.map((c) => el(`span.vs-comp.g-${c.grade.toLowerCase()}`, { title: `${c.total} CVEs, ${c.fixable} with a fix${c.upgradeTo ? `; upgrade to ${c.upgradeTo}` : ""}` },
+    el("b", c.grade), ` ${c.name}`))) : null;
 }
 
 async function renderSecurity(main) {
@@ -31,11 +47,10 @@ async function renderSecurity(main) {
   const scope = el("div.seg",
     el(`button.${all ? "off" : "on"}`, { type: "button", onclick: () => { safeSet("vulnall", "0"); render(); } }, "Containers' images"),
     el(`button.${all ? "on" : "off"}`, { type: "button", onclick: () => { safeSet("vulnall", "1"); render(); } }, "All images"));
-  const scanBtn = el("button.solid", { type: "button", "data-act": "go", "data-act-fixed": "" }, "Scan now");
-  const rescanBtn = el("button.ghost", { type: "button" }, "Rescan all");
+  const recalc = el("button.solid", { type: "button", "data-act": "go", "data-act-fixed": "" }, "Recalculate Cyber Risk");
   const head = el("div.head",
-    el("div", el("h1", "Security"), el("p.muted", "Known vulnerabilities (CVEs) in the images your containers run, found with Trivy.")),
-    el("div.toolbar", scope, scanBtn, rescanBtn));
+    el("div", el("h1", "Security"), el("p.muted", "Cyber risk of the images your containers run: known vulnerabilities (CVEs) in every component, found with Trivy. Ratings are kept until you recalculate them.")),
+    el("div.toolbar", scope, recalc));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const progress = el("div.vs-progress", { hidden: true });
   const overview = el("div");
@@ -51,11 +66,10 @@ async function renderSecurity(main) {
     last = sig;
     draw(d);
   };
-  scanBtn.addEventListener("click", () => startVulnScan({ all }, load));
-  rescanBtn.addEventListener("click", () => startVulnScan({ all, force: true }, load));
+  recalc.addEventListener("click", () => startVulnScan({ all, force: true }, load));
 
   const draw = (d) => {
-    scanBtn.disabled = rescanBtn.disabled = !d.trivy || d.scan.running;
+    recalc.disabled = !d.trivy || d.scan.running;
     if (!d.trivy) {
       progress.hidden = true;
       overview.replaceChildren(el("div.card.info-card.vs-install", cardHead("t8", "shield", "Trivy is needed"),
@@ -76,9 +90,9 @@ async function renderSecurity(main) {
       return;
     }
     overview.replaceChildren(done.length ? overviewCard(done) : el("div.card.vs-first",
-      el("p", el("strong", `${rows.length} image${rows.length === 1 ? "" : "s"} to scan.`), " Each takes a few seconds; the first scan also downloads Trivy's database."),
-      d.scan.running ? null : el("button.solid", { type: "button", "data-act": "go", "data-act-fixed": "", onclick: () => startVulnScan({ all }, load) }, "Scan now")));
-    table.replaceChildren(cardHead("t1", "box", "Images", `${done.length} of ${rows.length} scanned`), imageTable(rows, d.scan));
+      el("p", el("strong", `${rows.length} image${rows.length === 1 ? "" : "s"} not rated yet.`), " Each takes a few seconds; the first run also downloads Trivy's database. The ratings are kept until you recalculate them."),
+      d.scan.running ? null : el("button.solid", { type: "button", "data-act": "go", "data-act-fixed": "", onclick: () => startVulnScan({ all }, load) }, "Calculate Cyber Risk")));
+    table.replaceChildren(cardHead("t1", "box", "Images", `${done.length} of ${rows.length} rated`), imageTable(rows, d.scan));
   };
 
   const drawProgress = (sc) => {
@@ -89,7 +103,7 @@ async function renderSecurity(main) {
     fill.style.setProperty("width", `${sc.total ? Math.round((sc.done / sc.total) * 100) : 4}%`);
     progress.replaceChildren(
       sc.running ? el("div.vs-prog-line", el("span.spin"),
-        el("span", sc.phase === "db" ? "Updating Trivy's vulnerability database…" : `Scanning ${sc.current || "…"} (${sc.done + 1} of ${sc.total})`),
+        el("span", sc.phase === "db" ? "Updating Trivy's vulnerability database…" : `Rating ${vulnName(sc.current || "…")} (${sc.done + 1} of ${sc.total})`),
         el("div.bl-bar", fill)) : null,
       sc.error ? el("div.notice.bad", sc.error) : null,
       !sc.running && failed.length ? el("details.vs-failed", el("summary", `${failed.length} image${failed.length === 1 ? "" : "s"} could not be scanned`),
@@ -101,8 +115,8 @@ async function renderSecurity(main) {
     for (const r of rows) {
       const s = r.summary;
       const scanningThis = sc.running && sc.current === r.ref;
-      const counts = s ? el("div.vs-counts", SEVS.slice(0, 4).map((k) => s.counts?.[k] ? sevPill(k, s.counts[k]) : null),
-        s.total ? null : el("span.vs-clean", "No known CVEs")) : el("span.muted", scanningThis ? "Scanning…" : "Not scanned yet");
+      const counts = s ? el("div", el("div.vs-counts", SEVS.slice(0, 4).map((k) => s.counts?.[k] ? sevPill(k, s.counts[k]) : null),
+        s.total ? null : el("span.vs-clean", "No known CVEs")), worstComponentChips(s)) : el("span.muted", scanningThis ? "Rating…" : "Not rated yet");
       tb.append(el("tr",
         el("td", s ? el("button.bl-gbtn", { type: "button", title: VULN_GRADE_WORDS[s.grade] || "", onclick: () => showVulns(r.id, vulnName(r.ref)) }, gradeBadge(s.grade)) : el("span.bl-grade.g-x", "?")),
         el("td", el("div.vs-img", el("strong.mono", { title: r.ref }, vulnName(r.ref)),
@@ -113,13 +127,13 @@ async function renderSecurity(main) {
           : el("span.muted.small", "no container")),
         el("td", counts),
         el("td.num", s ? String(sumOf(s.fixable)) : "–"),
-        el("td.muted.small", r.scannedAt ? ago(new Date(r.scannedAt).getTime() / 1000) + (r.stale ? " (old)" : "") : "–"),
+        el("td.muted.small", r.scannedAt ? ago(new Date(r.scannedAt).getTime() / 1000) : "–"),
         el("td.vs-actions",
           s ? el("button.ghost.mini", { type: "button", onclick: () => showVulns(r.id, vulnName(r.ref)) }, "Details") : null,
-          el("button.ghost.mini", { type: "button", disabled: sc.running, onclick: () => startVulnScan({ ids: [r.id] }, load) }, s ? "Rescan" : "Scan"))));
+          el("button.ghost.mini", { type: "button", disabled: sc.running, onclick: () => startVulnScan({ ids: [r.id] }, load) }, s ? "Recalculate" : "Rate"))));
     }
     return el("div.table-wrap", el("table.vs-table",
-      el("thead", el("tr", ["Grade", "Image", "Used by", "Vulnerabilities", "Fixable", "Scanned", ""].map((h) => el("th", h)))), tb));
+      el("thead", el("tr", ["Cyber risk", "Image", "Used by", "Vulnerabilities and riskiest components", "Fixable", "Rated", ""].map((h) => el("th", h)))), tb));
   };
 
   setTimer(load, 2000, main);
@@ -185,7 +199,8 @@ async function showVulns(id, ref) {
     el("div.bl-score", gradeBadge(r.grade, { big: true }), el("div.bl-score-text",
       el("strong", `${r.total} known vulnerabilit${r.total === 1 ? "y" : "ies"}`),
       el("span.bl-verdict", VULN_GRADE_WORDS[r.grade] || ""),
-      el("span.muted.small", `${r.os ? r.os + " · " : ""}scanned ${ago(new Date(d.scannedAt).getTime() / 1000)} with Trivy`))),
+      el("span.muted.small", `${r.os ? r.os + " · " : ""}rated ${ago(new Date(d.scannedAt).getTime() / 1000)} with Trivy`),
+      el("button.ghost.mini.vs-recalc", { type: "button", onclick: (e) => recalcImage(e.target, id, ref, token) }, "Recalculate Cyber Risk"))),
     el("div.tiles.bl-hero-tiles",
       SEVS.slice(0, 4).map((k) => {
         const t = tile({ CRITICAL: "t8", HIGH: "t2", MEDIUM: "t4", LOW: "t1" }[k], "shield", SEV_NAME[k], String(r.counts?.[k] || 0), r.counts?.[k] && k !== "LOW" && k !== "MEDIUM" ? "bad" : "");
@@ -200,6 +215,28 @@ async function showVulns(id, ref) {
       el("p.fix-detail", a.detail),
       a.fix ? el("div.bl-code", el("pre.code-block", a.fix), copyBtn(a.fix)) : null)))
       : el("p.bl-allgood", "Nothing to do: no known vulnerabilities."));
+
+  // Every component with findings, graded on its own, worst first.
+  const comps = r.components || [];
+  let compLimit = 25;
+  const compBody = el("div");
+  const drawComps = () => {
+    compBody.replaceChildren(el("div.table-wrap", el("table.vs-cves.vs-comp-table",
+      el("thead", el("tr", ["Cyber risk", "Component", "Version", "Vulnerabilities", "Fixable", "Upgrade to"].map((h) => el("th", h)))),
+      el("tbody", comps.slice(0, compLimit).map((c) => el("tr",
+        el("td", el("button.bl-gbtn", { type: "button", title: `Show ${c.name}'s CVEs`, onclick: () => { q.value = c.name; limit = 200; drawList(); listCard.scrollIntoView({ behavior: "smooth", block: "start" }); } }, gradeBadge(c.grade))),
+        el("td", el("strong.mono", c.name), el("span.vs-target", c.kind === "os" ? "OS package" : c.target)),
+        el("td.mono.small", c.version),
+        el("td", el("div.vs-counts", SEVS.slice(0, 4).map((k) => c.counts?.[k] ? sevPill(k, c.counts[k]) : null))),
+        el("td.num", String(c.fixable)),
+        el("td.mono.small", c.upgradeTo ? el("span.vs-fixed", c.upgradeTo) : el("span.muted", "no fix yet"))))))),
+    comps.length > compLimit ? el("button.ghost.mini.vs-more", { type: "button", onclick: () => { compLimit += 50; drawComps(); } }, `Show more (${comps.length - compLimit} left)`) : "");
+  };
+  const gradeCount = (g) => comps.filter((c) => c.grade === g).length;
+  const compCard = comps.length ? el("div.card.info-card", cardHead("t2", "layers", "Components", `${comps.length} with findings · ${["F", "D", "C", "B", "A"].map((g) => gradeCount(g) ? `${gradeCount(g)} ${g}` : "").filter(Boolean).join(", ")}`),
+    el("p.small.muted.vs-comp-note", "Each package graded on its own: F has a critical CVE with a fix, D a critical with none, C a high with a fix, B a high with none or a medium, A only low. Click a grade to see its CVEs."),
+    compBody) : null;
+  if (compCard) drawComps();
 
   // The list, with severity toggles, "only with a fix" and a search box.
   const on = new Set(SEVS);
@@ -239,7 +276,25 @@ async function showVulns(id, ref) {
   const listCard = el("div.card.info-card", cardHead("t1", "shield", "Every vulnerability", `${vulns.length} found`),
     el("div.vs-filters", chips, el("label.vs-onlyfix", fixBox, el("span", "Only ones with a fix")), q), list);
   drawList();
-  $("#drawerbody").replaceChildren(hero, fixCard, listCard);
+  $("#drawerbody").replaceChildren(...[hero, fixCard, compCard, listCard].filter(Boolean));
+}
+
+// Rates one image again, then redraws its drawer if it is still the one open.
+async function recalcImage(btn, id, ref, token) {
+  btn.disabled = true;
+  btn.textContent = "Recalculating…";
+  try { await api("POST", `${P()}/vulns/scan`, { ids: [id] }); } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Recalculate Cyber Risk"; return; }
+  for (let i = 0; i < 150; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    if (state.drawerToken !== token) return;
+    let d;
+    try { d = await api("GET", `${P()}/vulns?all=1`); } catch { continue; }
+    if (!d.scan.running) {
+      if (d.scan.failed?.length) toast(d.scan.failed[0], true); else toast("Cyber risk recalculated");
+      showVulns(id, ref);
+      return;
+    }
+  }
 }
 
 tabs.security = renderSecurity;

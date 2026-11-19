@@ -215,6 +215,8 @@ func (s *Server) apiUpdateRuntime(w http.ResponseWriter, r *http.Request) {
 		defer s.opt.Colima.Release(p)
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
+		j.Line("$ colima update --profile " + p)
+		j.Line("Colima refreshes the package list inside the VM, then upgrades Docker Engine. Containers restart. This usually takes under a minute.")
 		cmd := exec.CommandContext(ctx, s.opt.Colima.Bin, "update", "--profile", p)
 		cmd.Stdout, cmd.Stderr = j, j
 		if err := cmd.Run(); err != nil {

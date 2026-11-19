@@ -11,7 +11,10 @@ function errRange() {
 }
 
 async function loadErrors(since) {
-  return api("GET", `${P()}/errors?since=${since}`);
+  const d = await api("GET", `${P()}/errors?since=${since}`);
+  d.lines ||= [];
+  d.sources ||= [];
+  return d;
 }
 
 // The sidebar badge: errors in the last 15 minutes.
@@ -106,7 +109,7 @@ async function renderErrors(main) {
             s.state && s.state !== "running" ? el("span.small.muted", ` (${s.state})`) : null),
           el("td", s.errors ? el("strong.err-n", String(s.errors)) : "0"),
           el("td", String(s.warnings)),
-          el("td.nowrap", s.last ? new Date(s.last).toLocaleTimeString(undefined, { hour12: false }) : ""),
+          el("td.nowrap", s.last ? clockOrDate(s.last) : ""),
           el("td.actions",
             el("button.ghost.mini", { type: "button", onclick: () => { errState.source = errState.source === s.key ? "" : s.key; paint(d); } }, errState.source === s.key ? "Show all" : "Only this"),
             s.kind === "pod" ? null : el("button.mini", { type: "button", onclick: () => goToSource(s) }, "Open container"),
@@ -125,7 +128,7 @@ async function renderErrors(main) {
       box.replaceChildren(...(rows.length ? rows.map((l) => {
         const s = srcBy[l.source];
         const line = logfmt.line(l.text, errState.q, l.level === "error");
-        line.prepend(el("span.lg-ts", { title: l.ts }, l.ts ? new Date(l.ts).toLocaleTimeString(undefined, { hour12: false }) : ""), " ",
+        line.prepend(el("span.lg-ts", { title: l.ts }, l.ts ? clockOrDate(l.ts) : ""), " ",
           s ? srcLink(s) : el("span.err-src", l.source), " ");
         line.classList.add("err-line");
         line.title = s?.kind === "pod" ? "Click to open this pod's logs" : "Click to open the log on this line";

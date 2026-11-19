@@ -209,11 +209,11 @@ function logViewer(opts) {
   const count = el("span.muted.small.log-count");
   const status = el("span.small.log-status");
   let mode = safeGet("logmode") === "filter" ? "filter" : "highlight";
-  stamps.checked = safeGet("logstamps") === "1";
+  stamps.checked = safeGet("logstamps") !== "0"; // on unless turned off
   since.value = safeGet("logsince") || "";
   const buf = [];
   const services = new Map();
-  let query = logQuery(""), ver = 0, lastTs = "", repaintT = null, shownN = 0;
+  let query = logQuery(""), ver = 0, gen = 0, lastTs = "", repaintT = null, shownN = 0;
   let at = opts.at || ""; // open on this line: load from just before it, no follow
   if (at) follow.checked = false;
 
@@ -290,6 +290,13 @@ function logViewer(opts) {
       const t = Date.parse(at);
       if (!isNaN(t)) sinceV = String(Math.max(60, Math.ceil((Date.now() - t) / 1000) + 120));
     }
+    connect(sinceV, ++gen, 0);
+  };
+
+  // connect opens the stream. When a followed stream drops (the dashboard restarted, the Mac
+  // slept), it reconnects by itself from the last line it had, skipping lines it already shows.
+  const connect = (sinceV, myGen, tries) => {
+    const resumeFrom = tries ? lastTs : "";
     const qs = new URLSearchParams({ tail: sinceV ? String(LOG_CAP) : "500", follow: follow.checked ? "1" : "0" });
     if (sinceV) qs.set("since", sinceV);
     const src = new EventSource(`${opts.path}?${qs}`);
@@ -297,7 +304,12 @@ function logViewer(opts) {
     status.textContent = follow.checked ? "following" : "loading";
     status.className = "small log-status on";
     src.addEventListener("services", (e) => { for (const n of JSON.parse(e.data)) svcClass(n); });
-    src.addEventListener("line", (e) => add(JSON.parse(e.data)));
+    src.addEventListener("line", (e) => {
+      const l = JSON.parse(e.data);
+      if (resumeFrom && (!l.ts || l.ts <= resumeFrom)) return; // already shown before the drop
+      tries = 0;
+      add(l);
+    });
     const end = (text, bad) => {
       src.close();
       status.textContent = text;
@@ -305,8 +317,21 @@ function logViewer(opts) {
     };
     src.addEventListener("done", () => { end(follow.checked ? "stream ended" : "loaded"); if (at) focusAt(); });
     src.addEventListener("failed", (e) => { end("failed", true); log.append(el("span.err", JSON.parse(e.data) + "\n")); });
-    // never let EventSource reconnect on its own: it would replay the tail as duplicates
-    src.onerror = () => { if (src.readyState !== EventSource.CLOSED) end("disconnected", true); };
+    // Never let EventSource reconnect on its own: it would replay the tail as duplicates.
+    src.onerror = () => {
+      if (src.readyState === EventSource.CLOSED && !tries) return;
+      src.close();
+      if (!follow.checked || !log.isConnected || myGen !== gen || tries >= 30) { end("disconnected", true); return; }
+      status.textContent = "reconnecting…";
+      status.className = "small log-status";
+      const wait = Math.min(10000, 1000 * 2 ** Math.min(tries, 3));
+      setTimeout(() => {
+        if (myGen !== gen || !log.isConnected || state.logSource !== src) return;
+        // ask from a little before the last line; anything already shown is skipped above
+        const back = lastTs ? String(Math.max(5, Math.ceil((Date.now() - Date.parse(lastTs)) / 1000) + 5)) : sinceV;
+        connect(back, myGen, tries + 1);
+      }, wait);
+    };
   };
 
   // focusAt marks the line opened on and scrolls to it, then forgets it: changing the range or
@@ -335,6 +360,9 @@ function logViewer(opts) {
   follow.addEventListener("change", () => { at = ""; start(); });
   since.addEventListener("change", () => { at = ""; safeSet("logsince", since.value); start(); });
 
+  // Which way is newest: said above the lines, and a button to jump back down when scrolled up.
+  const newest = el("button.mini.log-newest", { type: "button", hidden: true, onclick: () => { log.scrollTop = log.scrollHeight; } }, "↓ Newest");
+  log.addEventListener("scroll", () => { newest.hidden = log.scrollTop + log.clientHeight >= log.scrollHeight - 30; });
   const dl = () => {
     const rows = buf.filter(passes);
     const text = rows.map((l) => `${l.ts || "-"} ${l.n || opts.name}${l.s === "stderr" ? " stderr" : ""} | ${l.t}`).join("\n") + "\n";
@@ -347,7 +375,7 @@ function logViewer(opts) {
         el("button.ghost.mini", { type: "button", onclick: dl, title: "Downloads the lines shown, with timestamps and source names" }, "Download"),
         opts.link ? linkBtn(...opts.link) : null,
         el("span.log-meta", status, count))),
-    log);
+    el("div.log-wrap", el("div.log-order", "↑ Oldest", el("span", "Newest at the bottom ↓")), log, newest));
   setMode(mode);
   start();
 }

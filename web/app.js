@@ -27,6 +27,12 @@ function el(spec, attrs, ...children) {
     if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
     else if (k === "text") node.textContent = v;
     else if (k === "dataset") Object.assign(node.dataset, v);
+    else if (k === "style") {
+      // The CSP blocks style attributes, so styles always go through the CSSOM.
+      const pairs = typeof v === "object" ? Object.entries(v)
+        : String(v).split(";").map((d) => d.split(/:(.*)/s).map((x) => x.trim())).filter(([n, val]) => n && val);
+      for (const [n, val] of pairs) node.style.setProperty(n, String(val));
+    }
     else node.setAttribute(k, v === true ? "" : String(v));
   }
   for (const c of children.flat()) {
@@ -40,10 +46,12 @@ function el(spec, attrs, ...children) {
 // (Kubernetes, Fix, palette, exports) pick it up without remembering a class. A .danger class
 // colours anything the labels miss; data-act-fixed on a button opts it out.
 const ACTS = [
+  ["info", /^(minimi[sz]e|expand)\b/],
+  ["close", /^(close|cancel|dismiss|done|back|clear|not now|skip|keep it|mute|unmute|hide)\b/],
   ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
   ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
   ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward)\b/],
-  ["info", /^(logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|bloat|show|hide|reveal|full log|only this|download|copy|go to|container)\b/],
+  ["info", /^(recalculate|calculate|check|refresh|reload|retry|test|compare|logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|bloat|cves|rate|show|hide|reveal|full log|only this|download|copy|go to|container)\b/],
 ];
 function actOf(b) {
   const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
@@ -51,7 +59,7 @@ function actOf(b) {
   if (b.classList.contains("danger")) return "danger";
   return t ? "neutral" : "";
 }
-const NO_ACT = ".seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact, .bl-crumbs button, button.bl-gbtn, button.vs-chip";
+const NO_ACT = ".lim-presets button, .seg button, button.link, .pal-hint-btn, .statusbar button, .xmenu-pop button, nav button, button.noact, .bl-crumbs button, button.bl-gbtn, button.vs-chip";
 function tagButtons(root = document) {
   for (const b of root.querySelectorAll("button, a.btn")) {
     if (b.dataset.actFixed !== undefined || b.matches(NO_ACT)) continue;
@@ -113,21 +121,30 @@ function bytes(n) {
 }
 function gib(n) { return n ? `${Math.round(n / 1073741824)} GiB` : "–"; }
 function ago(unix) {
+  if (!Number.isFinite(unix) || unix <= 0) return "–";
   const s = Math.max(0, Date.now() / 1000 - unix);
   if (s < 90) return "just now";
   if (s < 5400) return `${Math.round(s / 60)} min ago`;
   if (s < 129600) return `${Math.round(s / 3600)} h ago`;
   return `${Math.round(s / 86400)} days ago`;
 }
+// clockOrDate is a time of day for today, and the date as well for anything older.
+function clockOrDate(ms) {
+  const d = new Date(ms);
+  if (isNaN(d)) return "";
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString(undefined, { hour12: false })
+    : d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+}
 function short(id) { return (id || "").replace(/^sha256:/, "").slice(0, 12); }
 
 function toast(msg, bad) {
   const t = $("#toast");
-  t.textContent = msg;
+  if (msg instanceof Node) t.replaceChildren(msg); else t.textContent = msg; // a Node can carry a button
   t.className = bad ? "toast bad" : "toast";
   t.hidden = false;
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => { t.hidden = true; }, bad ? 7000 : 3000);
+  toast.t = setTimeout(() => { t.hidden = true; }, msg instanceof Node ? 20000 : bad ? 7000 : 3000);
 }
 
 // In-page confirmation; never window.confirm.
@@ -269,6 +286,15 @@ function followJob(job, onDone) {
     refreshOverview();
   });
   src.onerror = () => {
+    if (src.readyState === EventSource.CLOSED) {
+      // The server no longer knows this job (it restarted, or the job expired): say so instead of
+      // leaving an empty console that claims to be running forever.
+      st.textContent = "lost";
+      st.className = "pill fail";
+      log.append(logfmt.line("ERROR Lost track of this job. The dashboard probably restarted while it ran. Check the page it came from to see whether it finished, then try again if needed.", "", true));
+      trackEnd(job, false);
+      return;
+    }
     // EventSource reconnects by itself; the server replays from the start, so clear first.
     log.replaceChildren();
     trackBegin(job);
@@ -393,6 +419,14 @@ async function refreshOverview() {
     $("#versions").textContent = `Colima Dashboard ${ov.version}` + (ov.colimaVersion ? ` · colima ${ov.colimaVersion}` : "");
     if (state.bootVersion && ov.version !== state.bootVersion) { location.reload(); return; }
     state.bootVersion = state.bootVersion || ov.version;
+    // A rebuilt dashboard with the same version still has new page code: reload when nothing is
+    // open, otherwise offer it, so an old tab never runs stale buttons against the new server.
+    if (state.bootBuild && ov.build && ov.build !== state.bootBuild && !state.reloadOffered) {
+      if ($("#drawer").hidden && $("#modal").hidden && $("#jobpanel").hidden) { location.reload(); return; }
+      state.reloadOffered = true;
+      toast(el("span", "Colima Dashboard was updated. ", el("button.mini", { type: "button", onclick: () => location.reload() }, "Reload page")));
+    }
+    state.bootBuild = state.bootBuild || ov.build;
     paintStatusBar();
   } catch (e) {
     $("#vmstate").replaceChildren(el("span.pill.fail", "error"));
@@ -418,6 +452,9 @@ function safeSet(k, v) { try { localStorage.setItem("colima-dashboard:" + k, v);
 $("#profile").addEventListener("change", (e) => {
   state.profile = e.target.value;
   safeSet("profile", state.profile);
+  // This render covers the new profile, so the next status poll must not draw the page again.
+  state.lastKey = `${state.profile}:${currentProfile()?.status}`;
+  state.pendingKey = "";
   renderVMState();
   render();
   refreshDiagBadge();
@@ -621,13 +658,18 @@ async function renderContainers(main) {
       exportMenu("containers", () => containerExportRows(list))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
-  main.replaceChildren(head, body);
+  // #containers?image=<id>&label=<name>: only the containers made from that image (from Images).
+  const onlyImage = state.route?.params.image || "";
+  const imageBar = onlyImage ? el("div.notice.img-only",
+    el("span", "Containers made from ", el("strong.mono", state.route.params.label || short(onlyImage))),
+    el("a.btnlink", { href: "#containers" }, "Show all containers")) : null;
+  main.replaceChildren(...[head, imageBar, body].filter(Boolean));
   const filter = $("#cfilter");
   let list = [];
   const draw = () => {
     const q = filter.value.trim().toLowerCase();
     safeSet("cfilter", filter.value);
-    const rows = list.filter((c) => !q || [c.Names.join(" "), c.Image, c.State, c.Labels?.["com.docker.compose.project"] || ""].join(" ").toLowerCase().includes(q));
+    const rows = list.filter((c) => (!onlyImage || c.ImageID === onlyImage) && (!q || [c.Names.join(" "), c.Image, c.State, c.Labels?.["com.docker.compose.project"] || ""].join(" ").toLowerCase().includes(q)));
     if (!rows.length) { body.replaceChildren(el("p.empty", list.length ? "Nothing matches the filter." : "No containers yet. Try: docker run -d -p 8080:80 nginx")); return; }
     const groups = new Map();
     for (const c of rows) {
@@ -1110,9 +1152,9 @@ async function renderImages(main) {
   ref.addEventListener("keydown", (e) => { if (e.key === "Enter") doPull(); });
   let imgs = [];
   const imageRows = () => imgs.map((i) => ({ id: i.Id, tags: (i.RepoTags || []).filter((t) => t !== "<none>:<none>").join(" "),
-    digests: (i.RepoDigests || []).join(" "), size_bytes: i.Size, created: new Date(i.Created * 1000).toISOString(), containers: i.Containers }));
+    digests: (i.RepoDigests || []).join(" "), size_bytes: i.Size, created: new Date(i.Created * 1000).toISOString(), last_used: i.Running ? "running" : i.LastUsed ? new Date(i.LastUsed * 1000).toISOString() : "", containers: i.Containers }));
   const head = el("div.head",
-    el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, scan, slim down, remove and prune images.")),
+    el("div", el("h1", "Images"), el("p.muted", "Pull, build, push, rate for cyber risk, slim down, remove and prune images.")),
     el("div.toolbar", ref, pull, el("button.ghost", { type: "button", onclick: pruneImages }, "Prune unused"), exportMenu("images", imageRows)));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
@@ -1120,6 +1162,30 @@ async function renderImages(main) {
   const grades = new Map();
   let redraw = () => {};
   main.replaceChildren(head, buildCard(), bloatSummaryCard((rows) => { for (const r of rows) grades.set(r.id, r); redraw(); }), body);
+  // Cyber risk ratings come from the saved Trivy results; nothing is scanned unless asked.
+  const cyber = { byId: new Map(), loaded: false, trivy: true, scan: {} };
+  const recalc = el("button.mini", { type: "button", "data-act": "go", "data-act-fixed": "", title: "Scan every image with Trivy again and regrade it" }, "Recalculate Cyber Risk");
+  const cyberNote = el("span.small.muted");
+  const loadCyber = async () => {
+    try {
+      const d = await api("GET", `${P()}/vulns?all=1`);
+      const sig = JSON.stringify([d.trivy, d.scan, d.images.map((r) => [r.id, r.scannedAt])]);
+      if (sig === cyber.sig) return;
+      cyber.sig = sig;
+      cyber.byId = new Map(d.images.map((r) => [r.id, r]));
+      cyber.loaded = true; cyber.trivy = d.trivy; cyber.scan = d.scan;
+      recalc.disabled = d.scan.running;
+      recalc.textContent = !d.trivy ? "Install Trivy" : d.scan.running ? "Recalculating…" : "Recalculate Cyber Risk";
+      cyberNote.textContent = d.scan.running ? (d.scan.phase === "db" ? "Updating Trivy's database…" : `Rating ${d.scan.done + 1} of ${d.scan.total}`) : "";
+      redraw();
+    } catch { /* the column stays empty */ }
+  };
+  recalc.addEventListener("click", () => {
+    if (!cyber.trivy) { installTrivy(() => { cyber.sig = ""; loadCyber(); }); return; }
+    startVulnScan({ all: true, force: true }, loadCyber);
+  });
+  loadCyber();
+  setTimer(() => { if (cyber.scan.running) loadCyber(); }, 2000, main);
   imgs = await api("GET", `${P()}/images`);
   if (!imgs.length) { body.replaceChildren(el("p.empty", "No images yet.")); return; }
   const items = imgs.map((i) => {
@@ -1171,15 +1237,21 @@ async function renderImages(main) {
           return el("button.bl-gbtn", { type: "button", title: `${g.score}/100${g.top ? `: ${g.top}` : ""}. Click for the full check.`, onclick: () => showBloat(i.Id, label) },
             gradeBadge(g.grade), g.saving ? el("span.small.muted", `~${bytes(g.saving)}`) : null);
         })()),
+        el("td", cyber.loaded ? cyberBadge(cyber.byId.get(i.Id)?.summary, i.Id, label) : el("span.muted.small", "…")),
         el("td.small", ago(i.Created)),
-        el("td", i.Containers > 0 ? el("span.pill.running", `in use (${i.Containers})`) : el("span.pill", "unused")),
-        el("td.actions",
-          el("button.ghost.mini", { type: "button", onclick: () => scanImage(tags[0] || i.Id) }, "Scan"),
+        el("td.small.nowrap", i.Running ? el("span.pill.running", "running now")
+          : i.LastUsed ? el("span", { title: i.LastUsedBy ? `Last run by ${i.LastUsedBy}` : "" }, ago(i.LastUsed)) : el("span.muted", "never seen")),
+        el("td", i.Containers > 0
+          ? el("a.pill.running.pill-link", { href: `#containers?${new URLSearchParams({ image: i.Id, label })}`, title: "Show the containers made from this image" }, `in use (${i.Containers})`)
+          : el("span.pill", "unused")),
+        el("td.actions.wrap.img-acts",
+          el("button.ghost.mini", { type: "button", title: "Known vulnerabilities by component", onclick: () => cyber.byId.get(i.Id)?.summary ? showVulns(i.Id, label)
+            : cyber.trivy ? startVulnScan({ ids: [i.Id] }, loadCyber) : installTrivy(() => { cyber.sig = ""; loadCyber(); }) }, cyber.byId.get(i.Id)?.summary ? "CVEs" : "Rate"),
           el("button.ghost.mini", { type: "button", onclick: () => showBloat(i.Id, label) }, "Bloat"),
           tags.length ? el("button.ghost.mini", { type: "button", onclick: () => pushImage(tags) }, "Push") : null,
           el("button.ghost.mini.danger", { type: "button", onclick: () => removeImage(i, label) }, "Remove")));
     }));
-    if (!shown.length) tbody.append(el("tr", el("td.muted", { colspan: 8 }, "No image matches the filter.")));
+    if (!shown.length) tbody.append(el("tr", el("td.muted", { colspan: 10 }, "No image matches the filter.")));
     sync();
   };
   all.addEventListener("change", () => { for (const x of shown) all.checked ? picked.set(x.i.Id, pickTags(x)) : picked.delete(x.i.Id); draw(); });
@@ -1187,8 +1259,8 @@ async function renderImages(main) {
   filter.addEventListener("input", draw);
   bulk.addEventListener("click", () => removeImages(items.filter((x) => picked.has(x.i.Id)).map((x) => ({ ...x, only: picked.get(x.i.Id) }))));
   body.replaceChildren(
-    el("div.toolbar.bulkbar", filter, count, el("span.grow"), clear, bulk),
-    el("table", el("thead", el("tr", el("th.pick", all), ...["Image", "ID", "Size", "Bloat", "Created", "Used by", ""].map((h) => el("th", h)))), tbody));
+    el("div.toolbar.bulkbar", filter, count, el("span.grow"), cyberNote, recalc, clear, bulk),
+    el("table", el("thead", el("tr", el("th.pick", all), ...["Image", "ID", "Size", "Bloat", "Cyber risk", "Created", "Last used", "Used by", ""].map((h) => el("th", h)))), tbody));
   redraw = draw;
   draw();
 }
@@ -1242,9 +1314,6 @@ async function pruneImages() {
   try { const r = await api("POST", `${P()}/images/prune`); toast(`Removed ${r.deleted} image${r.deleted === 1 ? "" : "s"}, freed ${bytes(r.spaceReclaimed)}`); render(); } catch (e) { toast(e.message, true); }
 }
 
-function scanImage(ref) {
-  runJob("POST", `${P()}/images/scan`, { ref });
-}
 
 // ---------- Volumes ----------
 
@@ -2310,9 +2379,15 @@ tabs.monitor = renderMonitor;
 function dur(sec) {
   if (sec === undefined || sec === null) return "–";
   if (sec < 1) return `${Math.round(sec * 1000)} ms`;
-  if (sec < 90) return `${sec.toFixed(sec < 10 ? 1 : 0)} s`;
-  if (sec < 5400) return `${Math.floor(sec / 60)} min ${Math.round(sec % 60)} s`;
-  return `${(sec / 3600).toFixed(1)} h`;
+  if (sec < 10) return `${+sec.toFixed(1)} s`;
+  if (sec < 90) return `${Math.round(sec)} s`;
+  // Seconds matter up to 5 minutes; past that, whole minutes read better.
+  if (sec < 300) { const s = Math.round(sec), m = Math.floor(s / 60); return s % 60 ? `${m} min ${s % 60} s` : `${m} min`; }
+  if (sec < 5400) return `${Math.round(sec / 60)} min`;
+  // Minutes matter up to 5 hours; past that, whole hours.
+  if (sec < 18000) { const m = Math.round(sec / 60), h = Math.floor(m / 60); return m % 60 ? `${h} h ${m % 60} min` : `${h} h`; }
+  if (sec < 172800) return `${Math.round(sec / 3600)} h`;
+  return `${Math.round(sec / 86400)} days`;
 }
 function pctRate(f) { return f < 0 ? "–" : `${Math.round(f * 100)}%`; }
 function whenAgo(t) { return ago(Date.parse(t) / 1000); }
@@ -2371,7 +2446,7 @@ async function renderRuns(main) {
         el("td.mono", j.passRate < 0 ? el("span.muted", "service") : `${pctRate(j.passRate)}`, j.fail ? el("div.muted.small", `${j.fail} failed`) : null),
         el("td.mono.nowrap", j.passRate < 0 ? "–" : dur(j.median)),
         el("td.mono.nowrap", j.passRate < 0 ? "–" : dur(j.p90)),
-        el("td", outcomePill(j.last.outcome), el("div.muted.small", `${whenAgo(j.last.t)}, ${dur(j.last.seconds)}`)),
+        el("td", outcomePill(j.last.outcome), el("div.muted.small", `${whenAgo(j.last.t)} · took ${dur(j.last.seconds)}`)),
         el("td", Charts.runBars(j.trend, dur))))))));
   const recent = el("div.card.viz", el("div.viz-head", el("h2", "Recent runs"), el("span.viz-tools", el("span.muted.small", `newest first, ${d.total} in all`),
     exportMenu(`runs-${days}d`, { url: `${P()}/runs?days=${days}` }))),
@@ -2443,7 +2518,7 @@ async function renderBuilds(main) {
         el("td.mono", String(b.builds)),
         el("td.mono.nowrap", b.builds > b.failed ? dur(b.median) : "–"), // no completed build, no median
         el("td.mono", pctRate(b.cacheRate), el("div.muted.small", "of steps")),
-        el("td", outcomePill(b.last.status === "Completed" ? "pass" : "fail"), el("div.muted.small", `${whenAgo(b.last.t)}, ${dur(b.last.seconds)}`)),
+        el("td", outcomePill(b.last.status === "Completed" ? "pass" : "fail"), el("div.muted.small", `${whenAgo(b.last.t)} · took ${dur(b.last.seconds)}`)),
         el("td", Charts.runBars(b.trend, dur)))))))));
   parts.push(el("div.card.viz", el("div.viz-head", el("h2", "Recent builds"), el("span.viz-tools", el("span.muted.small", "newest first"),
     exportMenu(`builds-${days}d`, { url: `${P()}/builds?days=${days}` }))),

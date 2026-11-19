@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,12 +65,27 @@ func (s *Server) apiK8sPodLogs(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("follow") == "1" {
 		args = append(args, "-f")
 	}
-	if r.URL.Query().Get("previous") == "1" {
-		args = append(args, "--previous")
-	}
+	previous := r.URL.Query().Get("previous") == "1"
 	ev, ok := newSSE(w)
 	if !ok {
 		return
+	}
+	if previous {
+		// k3s on the docker runtime removes a crashed container straight away, so kubectl
+		// has no previous run to show. The current container is then the one that crashed.
+		var buf bytes.Buffer
+		err := s.opt.Colima.KubectlStream(r.Context(), p, &buf, append(args, "--previous")...)
+		if r.Context().Err() != nil {
+			return
+		}
+		if out := buf.String(); err == nil && !previousGone(out) {
+			lw := &lineWriter{fn: func(line string) error { return ev.send("line", map[string]string{"s": "stdout", "t": line}) }}
+			_, _ = lw.Write([]byte(out))
+			lw.flush()
+			_ = ev.send("done", true)
+			return
+		}
+		_ = ev.send("note", "The previous run's log is gone (k3s removed that container), so this is the latest run.")
 	}
 	var mu sync.Mutex
 	lw := &lineWriter{fn: func(line string) error {
@@ -84,6 +100,28 @@ func (s *Server) apiK8sPodLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = ev.send("done", true)
+}
+
+// previousGone reports whether kubectl --previous only said the old container's log is gone.
+func previousGone(out string) bool {
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return true
+	}
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		// With --prefix the line starts "[pod/name/container] ".
+		if i := strings.Index(l, "] "); strings.HasPrefix(l, "[") && i > 0 {
+			l = l[i+2:]
+		}
+		if !strings.HasPrefix(l, "unable to retrieve container logs") && !strings.Contains(l, "previous terminated container") {
+			return false
+		}
+	}
+	return true
 }
 
 // lineWriter turns a byte stream into lines.

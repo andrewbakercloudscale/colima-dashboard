@@ -114,6 +114,17 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 		default:
 			add(Check{ID: "kubectx", Title: "kubectl uses this profile", State: "pass", Detail: cur})
 		}
+		// Having the right current context is not enough: the entry it names also needs its
+		// cluster and its user, or every kubectl call fails while the check above still passes.
+		if err == nil {
+			if missing := kubeContextGaps(ctx, want); missing != "" {
+				add(inTerminal(Check{ID: "kubeconfig", Title: "kubeconfig is complete", State: "fail",
+					Detail: fmt.Sprintf("~/.kube/config is missing the %s for %s; kubectl cannot reach the cluster", missing, want)},
+					"colima restart --profile "+profile))
+			} else {
+				add(Check{ID: "kubeconfig", Title: "kubeconfig is complete", State: "pass", Detail: want + " has its cluster and user"})
+			}
+		}
 	}
 
 	// 6. disk space on the Mac
@@ -338,6 +349,32 @@ func kubeCurrentContext(ctx context.Context) (string, error) {
 		return "", errors.New("kubectl is not installed on the Mac")
 	}
 	return runText(ctx, bin, "config", "current-context")
+}
+
+// kubeContextGaps names what the kubeconfig lacks for a context ("context", "cluster", "user",
+// joined with "and"), or "" when it is whole.
+func kubeContextGaps(ctx context.Context, name string) string {
+	bin, err := exec.LookPath("kubectl")
+	if err != nil {
+		return ""
+	}
+	out, err := runText(ctx, bin, "config", "view", "--context", name, "--minify", "-o",
+		"jsonpath={.contexts[0].name}|{.clusters[0].name}|{.users[0].name}")
+	if err != nil {
+		return "context"
+	}
+	return kubeGapsFrom(out)
+}
+
+func kubeGapsFrom(out string) string {
+	parts := strings.Split(strings.TrimSpace(out)+"||", "|")
+	var gaps []string
+	for i, what := range []string{"context", "cluster", "user"} {
+		if strings.TrimSpace(parts[i]) == "" {
+			gaps = append(gaps, what)
+		}
+	}
+	return strings.Join(gaps, " and ")
 }
 
 func runText(ctx context.Context, bin string, args ...string) (string, error) {
