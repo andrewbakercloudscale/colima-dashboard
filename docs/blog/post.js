@@ -1,8 +1,9 @@
-// Builds the andrewbaker.ninja post as WordPress block markup and saves it as a DRAFT.
+// Builds the andrewbaker.ninja post as WordPress block markup. A new post is saved as a DRAFT;
+// an existing post keeps its status (a live post stays live).
 //   node docs/blog/post.js            write docs/blog/post.html only
 //   node docs/blog/post.js --upload   also upload images and create or update the draft
 // Numbers come from docs/blog/numbers.json; a missing number prints as "measuring".
-// It saves a draft unless --publish is given, which the owner asks for each time.
+// --publish publishes it, which the owner asks for each time. Without it the status is left alone.
 const fs = require('fs');
 const path = require('path');
 
@@ -293,12 +294,16 @@ async function upload() {
   }
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2));
   if (changed) return 'rerun'; // image blocks need the new ids: build again, then save
-  const body = { title: TITLE, content: fs.readFileSync(path.join(__dirname, 'post.html'), 'utf8'), status: process.argv.includes('--publish') ? 'publish' : 'draft', author: 2, categories: [17, 15] };
+  // An update never sends a status unless --publish is given: sending 'draft' to the
+  // live post unpublished it on 2026-11-19 (it vanished from the site until restored).
+  const publish = process.argv.includes('--publish');
+  const body = { title: TITLE, content: fs.readFileSync(path.join(__dirname, 'post.html'), 'utf8'), author: 2, categories: [17, 15] };
+  if (publish) body.status = 'publish';
+  else if (!state.postId) body.status = 'draft';
   const post = state.postId
     ? await call('POST', `/wp/v2/posts/${state.postId}`, { data: body })
     : await call('POST', '/wp/v2/posts', { data: body });
-  const want = process.argv.includes('--publish') ? 'publish' : 'draft';
-  if (post.status !== want) throw new Error('post is ' + post.status + ', expected ' + want);
+  if (publish && post.status !== 'publish') throw new Error('post is ' + post.status + ', expected publish');
   state.postId = post.id;
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2));
   console.log(post.status, post.id, post.link);
