@@ -30,6 +30,9 @@ type Check struct {
 	Action string `json:"action,omitempty"`
 	// Confirm, when set, is what the page asks before a fix that deletes or edits something.
 	Confirm string `json:"confirm,omitempty"`
+	// Cleanup marks a problem a move away from Rancher Desktop (or Docker Desktop) typically
+	// leaves behind. General groups these, and its "Fix all" button runs every one in a job.
+	Cleanup bool `json:"cleanup,omitempty"`
 }
 
 // inPlace marks a check's fix as a Homebrew install the page runs itself.
@@ -133,9 +136,15 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 
 	// 7. what a removed Rancher Desktop left behind
 	checks = append(checks, rancherLeftovers()...)
+	if _, err := os.Stat(rancherApp); err != nil {
+		checks = append(checks, rancherContexts(ctx, profile)...)
+	}
 
 	// 8. a newer colima
 	add(s.latestCheck(ctx, ver))
+	for i := range checks {
+		checks[i].Cleanup = isCleanup(checks[i])
+	}
 	return checks
 }
 
@@ -253,13 +262,17 @@ func rancherLeftovers() []Check {
 		return []Check{c}
 	}
 	var out []Check
-	data := filepath.Join(home, "Library", "Application Support", "rancher-desktop")
-	if _, err := os.Stat(data); err == nil {
+	if dirs := rancherDataDirs(home); len(dirs) > 0 {
+		quoted := make([]string, len(dirs))
+		for i, d := range dirs {
+			quoted[i] = shq(d)
+		}
 		out = append(out, Check{ID: "rancher-data", Title: "Rancher Desktop leftovers", State: "warn",
-			Detail: "Rancher Desktop is gone but its data (VM disks) remains at " + data,
-			Fix:    `rm -rf ~/Library/Application\ Support/rancher-desktop`, Action: "terminal",
-			Confirm: "Deletes Rancher Desktop's VM disks and settings for good, with every image and container in them."})
+			Detail: "Rancher Desktop is gone but its data remains: " + strings.Join(tildes(home, dirs), ", "),
+			Fix:    "rm -rf " + strings.Join(quoted, " "), Action: "terminal",
+			Confirm: "Deletes Rancher Desktop's VM disks, settings, caches and logs for good, with every image and container in them."})
 	}
+	out = append(out, rancherLinks(home)...)
 	if files := profilesMentioning(home, ".rd/bin"); len(files) > 0 {
 		out = append(out, Check{ID: "rancher-path", Title: "Rancher Desktop leftovers", State: "warn",
 			Detail: "~/.rd/bin is still added to PATH by " + strings.Join(files, ", ") + " (Rancher Desktop wrote it)",

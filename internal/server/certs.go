@@ -184,33 +184,38 @@ func (s *Server) apiCerts(w http.ResponseWriter, r *http.Request) {
 		defer s.opt.Colima.Release(p)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		j.Line(fmt.Sprintf("copying %d certificate authorities from the Mac's keychains:", len(names)))
-		for _, n := range names {
-			j.Line("  " + n)
-		}
-		cmd, err := s.opt.Colima.SSHCommand(ctx, p, "sudo", "sh", "-c", vmCertScript, "sh", vmCertDir)
-		if err != nil {
-			return err
-		}
-		cmd.Stdin = bytes.NewReader(bundle)
-		cmd.Stdout, cmd.Stderr = j, j
-		if err := cmd.Run(); err != nil {
-			return err
-		}
-		time.Sleep(2 * time.Second)
-		code, err := s.vmTLS(ctx, p)
-		switch {
-		case err != nil:
-			return err
-		case code == 0:
-			j.Line("done: HTTPS from inside the VM works now")
-			return nil
-		case code == 60:
-			return errors.New("still not trusted: the proxy's root certificate is not in the Mac's System or login keychain")
-		default:
-			j.Line(fmt.Sprintf("installed, but Docker Hub could not be reached from the VM to confirm (curl exit %d)", code))
-			return nil
-		}
+		return s.copyCerts(ctx, j, p, bundle, names)
 	})
 	writeJSON(w, http.StatusAccepted, job.snapshot())
+}
+
+// copyCerts installs the Mac's certificate authorities in the VM and checks TLS works after.
+func (s *Server) copyCerts(ctx context.Context, j *Job, p string, bundle []byte, names []string) error {
+	j.Line(fmt.Sprintf("copying %d certificate authorities from the Mac's keychains:", len(names)))
+	for _, n := range names {
+		j.Line("  " + n)
+	}
+	cmd, err := s.opt.Colima.SSHCommand(ctx, p, "sudo", "sh", "-c", vmCertScript, "sh", vmCertDir)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = bytes.NewReader(bundle)
+	cmd.Stdout, cmd.Stderr = j, j
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	time.Sleep(2 * time.Second)
+	code, err := s.vmTLS(ctx, p)
+	switch {
+	case err != nil:
+		return err
+	case code == 0:
+		j.Line("done: HTTPS from inside the VM works now")
+		return nil
+	case code == 60:
+		return errors.New("still not trusted: the proxy's root certificate is not in the Mac's System or login keychain")
+	default:
+		j.Line(fmt.Sprintf("installed, but Docker Hub could not be reached from the VM to confirm (curl exit %d)", code))
+		return nil
+	}
 }
