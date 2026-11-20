@@ -240,6 +240,36 @@ window.addEventListener("focus", () => {
   if (["general", "diagnostics", "kubernetes"].includes(state.tab)) render(); else refreshDiagBadge();
 });
 
+// What a move from Rancher Desktop left behind (its data, plugin links, contexts, a missing
+// credential helper, the proxy certificate it used to copy into its VM), with one button that
+// fixes them all in a job. The server works the steps out again; the page sends no commands.
+function cleanupCard(list) {
+  const n = list.length;
+  const auto = list.filter((c) => !/(^|\s)sudo\s/.test(c.fix || ""));
+  const all = el("button", { type: "button" }, auto.length === n ? (n === 1 ? "Fix it" : `Fix all ${n}`) : `Fix ${auto.length} of ${n}`);
+  all.disabled = !auto.length;
+  all.addEventListener("click", async () => {
+    const steps = el("ol.cleanup-steps", list.map((c) => el("li",
+      el("strong", c.title),
+      el("p.small", c.confirm || c.detail),
+      c.action === "certs" || c.action === "install" ? el("p.muted.small", c.fix) : el("pre.log", c.fix),
+      auto.includes(c) ? null : el("p.small.cleanup-skip", "Skipped: needs your password. Use its own Run in Terminal button."))));
+    if (!await confirmBox("Clean up after Rancher Desktop?", el("div",
+      el("p", "Runs these one after another and shows the output. Anything removing Rancher Desktop uncovers is checked and fixed too."),
+      steps), "Fix all", true)) return;
+    all.disabled = true;
+    runJob("POST", `${P()}/cleanup`, undefined, () => render());
+  });
+  return el("section.card.fix-card.cleanup-card",
+    el("div.fix-head",
+      el("div", el("h2", "Rancher Desktop cleanup"),
+        el("p.small.muted", n === 1 ? "1 thing left over from Rancher Desktop or the move to Colima" : `${n} things left over from Rancher Desktop or the move to Colima`)),
+      all),
+    el("ul.fix-list", list.map((c) => el(`li.fix-item.${c.state}`,
+      el("div.fix-title", el("strong", c.title), el(`span.sev.${c.state}`, c.state === "fail" ? "Problem" : "Warning")),
+      el("p.fix-detail", c.detail), fixRow(c)))));
+}
+
 function needsFix(c) { return (c.state === "fail" || c.state === "warn") && c.id !== "vm" && !isMuted(c); }
 
 // Muted checks (this browser only) still run and show on Diagnostics, but leave the badge and
@@ -592,12 +622,13 @@ async function renderGeneral(main) {
   main.replaceChildren(head, attention, cards, ...(boot ? [boot] : [welcomeCard()]));
   // One "things to fix" card: the failed checks, then the Fix recommendations (limits, CPU,
   // memory), each painted as its answer arrives.
-  let todo = [], recs = [], errs = null;
+  let todo = [], clean = [], recs = [], errs = null;
   const paintAttention = () => {
     const errRow = typeof errorsRow === "function" ? errorsRow(errs) : null;
     const n = todo.length + recs.length + (errRow ? 1 : 0);
-    if (!n) { attention.replaceChildren(); return; }
-    attention.replaceChildren(el("section.card.fix-card",
+    const cc = clean.length ? cleanupCard(clean) : null;
+    if (!n) { attention.replaceChildren(...(cc ? [cc] : [])); return; }
+    attention.replaceChildren(...(cc ? [cc] : []), el("section.card.fix-card",
       el("div.fix-head", el("h2", n === 1 ? "1 thing to fix" : `${n} things to fix`),
         el("a.small", { href: "#diagnostics" }, "All checks")),
       el("ul.fix-list",
@@ -608,7 +639,8 @@ async function renderGeneral(main) {
   };
   api("GET", `/api/diagnostics?profile=${encodeURIComponent(state.profile)}`).then((list) => {
     setDiagBadge(list);
-    todo = list.filter(needsFix);
+    clean = list.filter((c) => c.cleanup && needsFix(c));
+    todo = list.filter((c) => needsFix(c) && !c.cleanup);
     paintAttention();
   }).catch(() => { /* Diagnostics shows the error */ });
   if (running && !(boot && !tracker.done)) {

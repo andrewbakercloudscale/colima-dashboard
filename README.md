@@ -76,6 +76,10 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
   tools such as kubectl install in place, the rest run in Terminal. Checks you do not care about can be muted.
 - Behind a company proxy that inspects TLS (Zscaler and the like), one click copies your Mac's
   certificate authorities into the VM, so pulls stop failing with x509 errors.
+- Rancher Desktop cleanup on the General page: what leaving Rancher Desktop left behind (its
+  data, `~/.rd/bin` PATH lines, plugin links into `~/.rd`, docker and kubectl contexts, a missing
+  credential helper, the proxy certificate) in one card, with a Fix all button that shows every
+  step first and then runs them with live output.
 - Start at login, and a light, dark or automatic theme.
 - Colour-coded VM, container and job logs.
 - Update checks for Colima and for the dashboard, which updates itself.
