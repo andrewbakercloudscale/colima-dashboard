@@ -12,10 +12,13 @@ jobs:
   checks:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Menu bar helper (swiftc; git-ignored, needed by -tags menubar)
+        run: bash scripts/build-menubar.sh
       - name: gofmt
         run: test -z "$(gofmt -l internal cmd web)" || { gofmt -l internal cmd web; exit 1; }
       - name: go vet
@@ -33,10 +36,13 @@ jobs:
     runs-on: macos-15
     needs: checks
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Menu bar helper (swiftc; git-ignored, needed by -tags menubar)
+        run: bash scripts/build-menubar.sh
       - name: Playwright (driver only; uses the runner's Google Chrome)
         run: |
           mkdir -p "$RUNNER_TEMP/pw"

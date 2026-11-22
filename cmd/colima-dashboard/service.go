@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const serviceLabel = "io.github.colima-dashboard"
@@ -68,6 +69,7 @@ func writePlist(port int) (string, string, error) {
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return "", "", err
 	}
+	exe = stableExe(exe)
 	home, _ := os.UserHomeDir()
 	logPath := filepath.Join(home, "Library", "Logs", "colima-dashboard.log")
 	plist := `<?xml version="1.0" encoding="UTF-8"?>
@@ -104,4 +106,15 @@ func uninstallService() error {
 	}
 	fmt.Println("Removed the Colima Dashboard LaunchAgent.")
 	return nil
+}
+
+// stableExe maps a Homebrew Cellar path (which changes, and is deleted, on every upgrade) to
+// Homebrew's version-free opt link, so the login item keeps working after brew upgrade.
+func stableExe(exe string) string {
+	const cellar = "/Cellar/colima-dashboard/"
+	i := strings.Index(exe, cellar)
+	if i < 0 {
+		return exe
+	}
+	return exe[:i] + "/opt/colima-dashboard/bin/" + filepath.Base(exe)
 }
