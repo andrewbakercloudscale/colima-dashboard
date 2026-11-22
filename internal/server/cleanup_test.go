@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,5 +74,41 @@ func TestIsCleanup(t *testing.T) {
 		if got := isCleanup(tc.c); got != tc.want {
 			t.Errorf("%s %s: got %v", tc.c.ID, tc.c.Detail, got)
 		}
+	}
+}
+
+func TestPluginDirFix(t *testing.T) {
+	home := t.TempDir()
+	run := func() {
+		cmd := exec.Command("/bin/sh", "-c", pluginDirFix("/opt/homebrew/lib/docker/cli-plugins"))
+		cmd.Env = append(os.Environ(), "HOME="+home)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	run()
+	b0, _ := os.ReadFile(filepath.Join(home, ".docker", "config.json"))
+	if !json.Valid(b0) {
+		t.Fatalf("not JSON: %s", b0)
+	}
+	_ = os.WriteFile(filepath.Join(home, ".docker", "config.json"), []byte("{}\n"), 0o600) // what docker itself writes
+	run()
+	run() // buildx's and compose's fixes both run; the second must change nothing
+	cfg := filepath.Join(home, ".docker", "config.json")
+	b, _ := os.ReadFile(cfg)
+	if strings.Count(string(b), "/opt/homebrew/lib/docker/cli-plugins") != 1 {
+		t.Fatalf("want the folder once, got %s", b)
+	}
+	// An existing config keeps its keys and gains the folder, once, however often it runs.
+	_ = os.WriteFile(cfg, []byte(`{"credsStore":"osxkeychain","cliPluginsExtraDirs":["/x"]}`), 0o600)
+	run()
+	run()
+	b, _ = os.ReadFile(cfg)
+	var got struct {
+		CredsStore string   `json:"credsStore"`
+		Dirs       []string `json:"cliPluginsExtraDirs"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil || got.CredsStore != "osxkeychain" || len(got.Dirs) != 2 || got.Dirs[0] != "/opt/homebrew/lib/docker/cli-plugins" {
+		t.Fatalf("config wrong: %s", b)
 	}
 }

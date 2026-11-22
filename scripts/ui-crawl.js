@@ -2,12 +2,13 @@
 // JS errors, failed API calls, junk text (undefined/NaN/null/[object Object]), overflow,
 // unstyled buttons, drawers or consoles that open empty.
 //
-// Usage: PLAYWRIGHT=/path/to/playwright-core TOKEN=<token from the Open link> node scripts/ui-crawl.js [width] [dark] [page,page]
+// Usage: [BASE=http://127.0.0.1:7767] PLAYWRIGHT=/path/to/playwright-core TOKEN=<token from the Open link> node scripts/ui-crawl.js [width] [dark] [page,page]
 // Needs a running dashboard on 127.0.0.1:7766, started with COLIMA_DASHBOARD_NO_TERMINAL=1 so no
 // button can open Terminal windows, and Google Chrome. Run it before every release, once
 // with a busy profile and once with a quiet one (no containers logging errors), at 1280 and 390.
 const { chromium } = require(process.env.PLAYWRIGHT || "playwright-core");
 const T = process.env.TOKEN || "";
+const BASE = process.env.BASE || "http://127.0.0.1:7766"; // another port for a second, throwaway dashboard
 if (!T) { console.error("set TOKEN to the token in the dashboard's Open link"); process.exit(2); }
 const W = Number(process.argv[2] || 1280), dark = process.argv[3] === "dark";
 const only = process.argv[4] ? process.argv[4].split(",") : null;
@@ -52,7 +53,7 @@ const UNSAFE = /terminal|ssh|osascript|open in|remove|delete|prune|kill|reset|fo
   };
   for (const pg of only || PAGES) {
     where = pg;
-    await p.goto(`http://127.0.0.1:7766/?token=${T}#${pg}`);
+    await p.goto(`${BASE}/?token=${T}#${pg}`);
     await p.waitForTimeout(4000);
     await scan();
     const labels = await p.evaluate(() => [...document.querySelectorAll("#main button, #main a.pill-link")].filter((e) => e.offsetParent !== null).map((e) => (e.textContent || e.getAttribute("aria-label") || "").trim()).filter(Boolean));
@@ -62,7 +63,7 @@ const UNSAFE = /terminal|ssh|osascript|open in|remove|delete|prune|kill|reset|fo
       seen.add(lab);
       where = `${pg} > "${lab.slice(0, 30)}"`;
       try {
-        if (!p.url().endsWith("#" + pg)) { await p.goto(`http://127.0.0.1:7766/?token=${T}#${pg}`); await p.waitForTimeout(3000); }
+        if (!p.url().endsWith("#" + pg)) { await p.goto(`${BASE}/?token=${T}#${pg}`); await p.waitForTimeout(3000); }
         const el = p.locator("#main button:visible, #main a.pill-link:visible").filter({ hasText: new RegExp("^\\s*" + lab.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") }).first();
         if (!(await el.count())) continue;
         await el.click({ timeout: 2000 });
@@ -76,4 +77,5 @@ const UNSAFE = /terminal|ssh|osascript|open in|remove|delete|prune|kill|reset|fo
   }
   console.log(found.join("\n") || "nothing found");
   await b.close();
+  process.exitCode = found.length ? 1 : 0; // CI fails on any finding
 })();

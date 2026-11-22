@@ -245,6 +245,8 @@ window.addEventListener("focus", () => {
 // fixes them all in a job. The server works the steps out again; the page sends no commands.
 function cleanupCard(list) {
   const n = list.length;
+  // Only call it a Rancher cleanup when Rancher left something; on a fresh Mac it is set up.
+  const rancher = list.some((c) => c.id.startsWith("rancher"));
   const auto = list.filter((c) => !/(^|\s)sudo\s/.test(c.fix || ""));
   const all = el("button", { type: "button" }, auto.length === n ? (n === 1 ? "Fix it" : `Fix all ${n}`) : `Fix ${auto.length} of ${n}`);
   all.disabled = !auto.length;
@@ -254,16 +256,19 @@ function cleanupCard(list) {
       el("p.small", c.confirm || c.detail),
       c.action === "certs" || c.action === "install" ? el("p.muted.small", c.fix) : el("pre.log", c.fix),
       auto.includes(c) ? null : el("p.small.cleanup-skip", "Skipped: needs your password. Use its own Run in Terminal button."))));
-    if (!await confirmBox("Clean up after Rancher Desktop?", el("div",
-      el("p", "Runs these one after another and shows the output. Anything removing Rancher Desktop uncovers is checked and fixed too."),
+    if (!await confirmBox(rancher ? "Clean up after Rancher Desktop?" : "Finish setting up?", el("div",
+      el("p", "Runs these one after another and shows the output, then checks again and fixes anything the first steps uncover."),
       steps), "Fix all", true)) return;
     all.disabled = true;
     runJob("POST", `${P()}/cleanup`, undefined, () => render());
   });
   return el("section.card.fix-card.cleanup-card",
     el("div.fix-head",
-      el("div", el("h2", "Rancher Desktop cleanup"),
-        el("p.small.muted", n === 1 ? "1 thing left over from Rancher Desktop or the move to Colima" : `${n} things left over from Rancher Desktop or the move to Colima`)),
+      rancher
+        ? el("div", el("h2", "Rancher Desktop cleanup"),
+          el("p.small.muted", n === 1 ? "1 thing left over from Rancher Desktop or the move to Colima" : `${n} things left over from Rancher Desktop or the move to Colima`))
+        : el("div", el("h2", "Finish setting up"),
+          el("p.small.muted", n === 1 ? "1 tool or setting Colima needs and does not have yet" : `${n} tools or settings Colima needs and does not have yet`)),
       all),
     el("ul.fix-list", list.map((c) => el(`li.fix-item.${c.state}`,
       el("div.fix-title", el("strong", c.title), el(`span.sev.${c.state}`, c.state === "fail" ? "Problem" : "Warning")),

@@ -76,7 +76,11 @@ func (s *Server) diagnose(ctx context.Context, profile string) []Check {
 	// 2. the VM
 	st, stErr := s.opt.Colima.Status(ctx, profile)
 	if stErr != nil {
-		add(Check{ID: "vm", Title: "Profile " + profile + " is running", State: "fail", Detail: "not running",
+		detail := "not running"
+		if _, err := os.Stat(filepath.Join(s.opt.ColimaHome, profile)); err != nil {
+			detail = "not created yet; Start creates it"
+		}
+		add(Check{ID: "vm", Title: "Profile " + profile + " is running", State: "fail", Detail: detail,
 			Fix: "colima start " + profile, Action: "start"})
 	} else {
 		add(Check{ID: "vm", Title: "Profile " + profile + " is running", State: "pass",
@@ -203,6 +207,15 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 	}
 	for _, plugin := range []struct{ name, brew string }{{"buildx", "docker-buildx"}, {"compose", "docker-compose"}} {
 		if _, err := runText(ctx, dockerBin, plugin.name, "version"); err != nil {
+			if dir := brewPluginDir("docker-" + plugin.name); dir != "" {
+				// Homebrew installed it, but docker only looks in ~/.docker/cli-plugins unless told.
+				// brew install would answer "already installed" and change nothing.
+				out = append(out, Check{ID: plugin.name, Title: "docker " + plugin.name + " plugin", State: "warn",
+					Detail: "Homebrew installed it in " + dir + ", but docker does not look there, so `docker " + plugin.name + "` fails",
+					Fix:    pluginDirFix(dir), Action: "terminal",
+					Confirm: "Adds " + dir + " to cliPluginsExtraDirs in ~/.docker/config.json, so docker finds Homebrew's buildx and compose. A backup is kept as ~/.docker/config.json.colima-dashboard.bak."})
+				continue
+			}
 			out = append(out, Check{ID: plugin.name, Title: "docker " + plugin.name + " plugin", State: "warn",
 				Detail: "not installed (Rancher Desktop bundles it; Colima does not)", Fix: "brew install " + plugin.brew, Action: "install"})
 		} else {
@@ -210,6 +223,31 @@ func (s *Server) dockerCLIChecks(ctx context.Context, profile string, running bo
 		}
 	}
 	return out
+}
+
+// brewPluginDir is Homebrew's docker cli-plugins folder when it holds the named plugin.
+func brewPluginDir(name string) string {
+	for _, prefix := range []string{"/opt/homebrew", "/usr/local"} {
+		dir := filepath.Join(prefix, "lib", "docker", "cli-plugins")
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return dir
+		}
+	}
+	return ""
+}
+
+// pluginDirFix adds dir to cliPluginsExtraDirs in ~/.docker/config.json with plutil (on every
+// Mac, keeps the file JSON). It does nothing when dir is already there, so buildx's and
+// compose's fixes can both run. plutil writes "/" as "\/", so both spellings count as there.
+func pluginDirFix(dir string) string {
+	// A missing or "{}" file is written whole: plutil reads "{}" as an old-style plist and
+	// refuses to save it ("Conversion to OpenStep format is not supported").
+	return `f="$HOME/.docker/config.json"; mkdir -p "$HOME/.docker"; ` +
+		`if [ ! -s "$f" ] || [ "$(tr -d ' \t\r\n' < "$f")" = "{}" ]; then [ -f "$f" ] && cp "$f" "$f.colima-dashboard.bak"; ` +
+		`printf '{\n\t"cliPluginsExtraDirs": ["%s"]\n}\n' '` + dir + `' > "$f"; ` +
+		`elif ! grep -qF -e '` + dir + `' -e '` + strings.ReplaceAll(dir, "/", `\/`) + `' "$f"; then cp "$f" "$f.colima-dashboard.bak"; ` +
+		`if grep -q '"cliPluginsExtraDirs"' "$f"; then plutil -insert cliPluginsExtraDirs.0 -string '` + dir + `' "$f"; ` +
+		`else plutil -insert cliPluginsExtraDirs -json '["` + dir + `"]' "$f"; fi; fi`
 }
 
 type dockerCfg struct {

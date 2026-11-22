@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l internal cmd web)" || { gofmt -l internal cmd web; exit 1; }
+      - name: go vet
+        run: go vet ./... && go vet -tags menubar ./...
+      - name: go test
+        run: go test ./...
+      - name: JavaScript syntax
+        run: for f in web/*.js scripts/*.js; do node --check "$f"; done
+      - name: Shell syntax
+        run: bash -n install.sh scripts/*.sh
+
+  # A brand new Mac: click every page before anything is installed, then run the real
+  # install.sh and click every page again. This is the path a reader of the blog takes.
+  fresh-mac:
+    runs-on: macos-15
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Playwright (driver only; uses the runner's Google Chrome)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          npm --prefix "$RUNNER_TEMP/pw" install --no-save --no-audit --no-fund playwright-core@1.56.0
+          echo "PLAYWRIGHT=$RUNNER_TEMP/pw/node_modules/playwright-core" >> "$GITHUB_ENV"
+      - name: What the runner already has
+        run: |
+          for t in brew colima docker kubectl; do printf '%-8s %s\n' "$t" "$(command -v $t || echo missing)"; done
+          cat ~/.docker/config.json 2>/dev/null || echo "no ~/.docker/config.json"
+      - name: Crawl before install
+        run: scripts/ci-crawl.sh before-install
+      - name: install.sh (latest release, no login item)
+        run: bash install.sh --no-service
+      - name: Docker finds Homebrew's plugins
+        run: docker buildx version && docker compose version
+      - name: install.sh again changes nothing
+        run: |
+          cp ~/.docker/config.json /tmp/cfg-before
+          bash install.sh --no-service
+          diff /tmp/cfg-before ~/.docker/config.json
+      - name: Crawl after install (colima, no VM)
+        run: scripts/ci-crawl.sh after-install
+      - name: Logs
+        if: failure()
+        run: cat "${TMPDIR:-/tmp}/cd-crawl.log" || true

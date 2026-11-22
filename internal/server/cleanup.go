@@ -136,7 +136,7 @@ func (s *Server) apiCleanup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
-	job := s.jobs.Start("Rancher Desktop cleanup ("+p+")", p, func(j *Job) error {
+	job := s.jobs.Start("Fix setup and leftovers ("+p+")", p, func(j *Job) error {
 		defer s.opt.Colima.Release(p)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()

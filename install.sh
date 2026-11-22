@@ -90,16 +90,20 @@ fi
 # 3. Let the docker CLI find compose and buildx from Homebrew
 PLUGINS="${BREW_PREFIX}/lib/docker/cli-plugins"
 CFG="${HOME}/.docker/config.json"
-if [ -f "${CFG}" ] && grep -q "${PLUGINS}" "${CFG}"; then
+# plutil writes "/" as "\/", so look for both spellings.
+if [ -f "${CFG}" ] && grep -qF -e "${PLUGINS}" -e "${PLUGINS//\//\\/}" "${CFG}"; then
     say "docker already looks in ${PLUGINS}"
 elif [ "${DRY}" -eq 1 ]; then
     say "Would add ${PLUGINS} to cliPluginsExtraDirs in ${CFG}"
 else
     say "Adding ${PLUGINS} to cliPluginsExtraDirs in ${CFG}"
     mkdir -p "${HOME}/.docker"
-    [ -s "${CFG}" ] || echo '{}' >"${CFG}"
-    cp "${CFG}" "${CFG}.bak-colima-dashboard"
-    if grep -q '"cliPluginsExtraDirs"' "${CFG}"; then
+    [ -f "${CFG}" ] && cp "${CFG}" "${CFG}.bak-colima-dashboard"
+    # A missing or "{}" file is written whole: plutil reads "{}" as an old-style plist and
+    # refuses to save it ("Conversion to OpenStep format is not supported").
+    if [ ! -s "${CFG}" ] || [ "$(tr -d ' \t\r\n' <"${CFG}")" = "{}" ]; then
+        printf '{\n\t"cliPluginsExtraDirs": ["%s"]\n}\n' "${PLUGINS}" >"${CFG}"
+    elif grep -q '"cliPluginsExtraDirs"' "${CFG}"; then
         plutil -insert cliPluginsExtraDirs.0 -string "${PLUGINS}" "${CFG}"
     else
         plutil -insert cliPluginsExtraDirs -json "[\"${PLUGINS}\"]" "${CFG}"
