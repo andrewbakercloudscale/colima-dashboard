@@ -13,7 +13,7 @@ if (!T) { console.error("set TOKEN to the token in the dashboard's Open link"); 
 const W = Number(process.argv[2] || 1280), dark = process.argv[3] === "dark";
 const only = process.argv[4] ? process.argv[4].split(",") : null;
 const PAGES = ["general", "monitor", "containers", "images", "volumes", "ports", "shells", "runs", "builds", "errors", "report", "security", "snapshots", "kubernetes", "troubleshooting", "diagnostics", "preferences"];
-const UNSAFE = /terminal|ssh|osascript|open in|remove|delete|prune|kill|reset|force|uninstall|wipe|purge|stop|restart|pause|roll|restore|rebuild|start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn|fix|enable|disable|add|new|set|trust|import|forward|recalc|rate|scan|calculate|snapshot|sign|log ?out|change|switch|send|clean|reclaim|shrink|drain|cordon|evict|exec|test|benchmark|check now|retry|mute|unmute|dismiss|clear|copy|download|export|profile/i;
+const UNSAFE = /terminal|ssh|back up|\bdown\b|finder|osascript|open in|remove|delete|prune|kill|reset|force|uninstall|wipe|purge|stop|restart|pause|roll|restore|rebuild|start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn|fix|enable|disable|add|new|set|trust|import|forward|recalc|rate|scan|calculate|snapshot|sign|log ?out|change|switch|send|clean|reclaim|shrink|drain|cordon|evict|exec|test|benchmark|check now|retry|mute|unmute|dismiss|clear|copy|download|export|profile/i;
 (async () => {
   const b = await chromium.launch({ channel: "chrome" });
   const ctx = await b.newContext({ viewport: { width: W, height: 900 }, colorScheme: dark ? "dark" : "light" });

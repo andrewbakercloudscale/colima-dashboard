@@ -51,6 +51,7 @@ hr();
 h2('1. Install It in One Paste');
 p('Open Terminal, paste this, and press Return. It installs Colima and the Docker command line tools with Homebrew, downloads Colima Dashboard (checking its checksum), sets it to start when you log in, and opens it in your browser.');
 code(INSTALL);
+p('Prefer Homebrew? <code>brew install andrewbakercloudscale/tap/colima-dashboard</code>, then <code>brew services start colima-dashboard</code> to start it at login.');
 p(`Then press <strong>Start</strong> on the General page. The first start downloads a small Linux image and takes a minute or two; after that it is quick. Everything is on <a href="${REPO}">GitHub</a> under the Apache 2.0 licence.`);
 hr();
 
@@ -218,6 +219,9 @@ ul([
 ]);
 h3('Things Rancher Desktop never had');
 ul([
+  '<strong>Compose from a folder:</strong> it finds the Compose projects on your Mac. Pick one to see each service\'s image, ports and state, then start, rebuild, pull, restart, stop or take it down.',
+  '<strong>Volume backups:</strong> one click saves a volume as a plain .tar.gz on your Mac, and restore puts it back into the same volume or a new one. Backups survive deleting the VM.',
+  '<strong>What each container costs your Mac:</strong> the Monitor splits the VM\'s Mac CPU time and memory between your containers, so you can see which one is warming your lap.',
   '<strong>Things to fix on the first page:</strong> out of memory kills, containers at their limits, a VM short of CPU or memory, and log errors, each with a recommendation in real numbers and a button to apply it.',
   '<strong>Summary on every page:</strong> totals, sizes, unused space, crashes, restarts, containers with no memory limit and ports open to your network, at the top of each page.',
   '<strong>Cyber risk:</strong> an A to F grade for every image and every component in it, cached until you press Recalculate Cyber Risk, with the version that fixes each one.',

@@ -68,3 +68,29 @@ jobs:
       - name: Logs
         if: failure()
         run: cat "${TMPDIR:-/tmp}/cd-crawl.log" || true
+
+  # The Homebrew formula scripts/update-tap.sh writes, built from the latest release, must pass
+  # brew style, install with its dependencies, and pass brew test.
+  homebrew-formula:
+    runs-on: macos-15
+    needs: checks
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Formula for the latest release
+        run: |
+          V="$(gh release view --json tagName -q .tagName | sed 's/^v//')"
+          mkdir -p dist
+          gh release download "v$V" -p checksums.txt -D dist
+          TAP_DIR="$RUNNER_TEMP/tap" scripts/update-tap.sh "$V"
+          git -C "$RUNNER_TEMP/tap" init -q -b main
+          git -C "$RUNNER_TEMP/tap" -c user.name=ci -c user.email=ci@localhost add -A
+          git -C "$RUNNER_TEMP/tap" -c user.name=ci -c user.email=ci@localhost commit -q -m formula
+      - name: brew style, install, test
+        run: |
+          brew tap andrewbakercloudscale/tap "$RUNNER_TEMP/tap"
+          brew style andrewbakercloudscale/tap/colima-dashboard
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install andrewbakercloudscale/tap/colima-dashboard
+          brew test andrewbakercloudscale/tap/colima-dashboard
+          colima-dashboard version

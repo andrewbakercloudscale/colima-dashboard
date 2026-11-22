@@ -10,7 +10,7 @@ troubleshooting) in one small binary, opened in your browser.
 curl -fsSL https://raw.githubusercontent.com/andrewbakercloudscale/colima-dashboard/main/install.sh | bash
 ```
 
-Then open http://colima.localhost:7766. Details and options are in [Install](#install).
+Then open http://colima.localhost:7766. Prefer Homebrew? `brew install andrewbakercloudscale/tap/colima-dashboard`. Details and options are in [Install](#install).
 
 **Status:** early release (0.1.3). See [docs/PLAN.md](docs/PLAN.md).
 
@@ -49,6 +49,10 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - A Shells page: a terminal in the Colima VM itself (root, like `colima ssh`), any running
   container (pick bash or sh, and the user) or a Kubernetes pod, with recent ones one click away.
 - Live stats per container (CPU, memory, network and disk I/O, processes).
+- Compose from a folder: find the Compose projects on your Mac (or type a folder), see each
+  service's image, ports and state, and start, rebuild, pull, restart, stop or take it down.
+- Volume backups: back a volume up to a plain `.tar.gz` in `~/colima-backups/volumes` and restore
+  it into the same or a new volume. Backups survive deleting the VM.
 - Build an image from a folder on your Mac, push it, or scan it with Trivy.
 - Security: a CVE scan with Trivy of every image your containers use (or every image), with a
   cyber risk grade per image and per component (cached, with a Recalculate Cyber Risk button),
@@ -57,7 +61,8 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Image bloat: a grade for every image, where the space goes (layers, folders, biggest files),
   what wastes it (build tools with no multi-stage build, package caches, deleted files that still
   ship, chown copies, .git, archives) and a suggested multi-stage Dockerfile and .dockerignore.
-- Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history.
+- Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history, and
+  what each container costs your Mac: its share of the VM's Mac CPU time and memory.
 - Runs and tests and Builds: pass rates, flaky and slowing tests, build times and cache hits.
 - Things to fix on the first page: out of memory kills, containers at their limits, a VM short of
   CPU or memory and recent log errors, each with a recommendation and a button to apply it.
@@ -125,6 +130,16 @@ to `/etc/hosts`; that is the only step that asks for your Mac password. Skip it 
 at `http://127.0.0.1:7766` (the General page has a button to add the name later). Then press **Start** on the General page to create your first VM.
 Add `--kubectl` for kubectl, `--no-service` to skip the login item, `--dry-run` to see the steps
 first: `curl -fsSL …/install.sh | bash -s -- --dry-run`.
+
+**Or with Homebrew** (installs Colima, docker, compose and buildx as dependencies):
+
+```sh
+brew install andrewbakercloudscale/tap/colima-dashboard
+brew services start colima-dashboard   # start now and at every login
+```
+
+Then open http://127.0.0.1:7766. A Homebrew install updates with `brew upgrade colima-dashboard`
+instead of updating itself.
 
 Colima Dashboard updates itself when a new release is out (untick "Update automatically" on the
 General page to stop that). To remove it: `colima-dashboard uninstall-service`, delete the

@@ -47,11 +47,11 @@ function el(spec, attrs, ...children) {
 // colours anything the labels miss; data-act-fixed on a button opts it out.
 const ACTS = [
   ["info", /^(minimi[sz]e|expand)\b/],
-  ["close", /^(close|cancel|dismiss|done|back|clear|not now|skip|keep it|mute|unmute|hide)\b/],
-  ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop)\b/],
+  ["close", /^(close|cancel|dismiss|done|back(?! up)|clear|not now|skip|keep it|mute|unmute|hide)\b/],
+  ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop|down)\b/],
   ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
-  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward)\b/],
-  ["info", /^(recalculate|calculate|check|refresh|reload|retry|test|compare|logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|bloat|cves|rate|show|hide|reveal|full log|only this|download|copy|go to|container)\b/],
+  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward|back up)\b/],
+  ["info", /^(recalculate|calculate|check|refresh|reload|retry|test|compare|logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|bloat|cves|rate|show|hide|reveal|full log|only this|download|copy|go to|container|find|compose)\b/],
 ];
 function actOf(b) {
   const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
@@ -401,7 +401,7 @@ async function runJob(method, path, body, onDone) {
 const DRAWER_KINDS = [
   ["Inspect", "search", "t1"], ["VM logs", "logs", "t7"], ["Logs", "logs", "t7"], ["Shell", "shell", "t3"],
   ["Volume", "disk", "t4"], ["Files", "folder", "t4"], ["Limits", "sliders", "t2"], ["Fix", "wrench", "t2"],
-  ["Pod", "wheel", "t1"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"], ["Bloat", "layers", "t8"], ["CVEs", "shield", "t8"],
+  ["Pod", "wheel", "t1"], ["Compose", "layers", "t3"], ["Resources", "sliders", "t2"], ["YAML", "code", "t5"], ["Bloat", "layers", "t8"], ["CVEs", "shield", "t8"],
 ];
 function drawerTitle(title) {
   const k = DRAWER_KINDS.find(([w]) => title.startsWith(w + ":") || title.startsWith(w + " "));
@@ -692,6 +692,7 @@ async function renderContainers(main) {
   const head = el("div.head",
     el("div", el("h1", "Containers"), el("p.muted", "Running and stopped containers, grouped by Compose project.")),
     el("div.toolbar", el("input", { type: "search", id: "cfilter", placeholder: "Filter", "aria-label": "Filter containers", value: state.route?.params.q ?? safeGet("cfilter") ?? "" }),
+      el("button", { type: "button", onclick: showComposePicker, title: "Start a Compose project from a folder on your Mac" }, "Compose from a folder"),
       exportMenu("containers", () => containerExportRows(list))));
   if (!isRunning()) { main.replaceChildren(head, notRunningCard()); return; }
   const body = el("div.card.table-wrap", el("p.muted", "Loading…"));
@@ -741,8 +742,10 @@ async function renderContainers(main) {
       const cs = groups.get(g);
       if (g) {
         const anyRunning = cs.some((c) => c.State === "running");
+        const wd = cs.map((c) => c.Labels?.["com.docker.compose.project.working_dir"]).find(Boolean);
         tbody.append(el("tr.group", el("td", { colspan: 6 }, `Compose: ${g}`, el("span.muted.small", ` · ${cs.length} ${cs.length === 1 ? "container" : "containers"}`)),
           el("td.actions",
+            wd ? el("button.ghost.mini", { type: "button", onclick: () => showCompose(wd), title: `Services, rebuild, pull and down for ${wd}` }, "Compose") : null,
             el("button.ghost.mini", { type: "button", onclick: () => showProjectLogs(g), title: "All of this project's logs, interleaved by time" }, "Logs"),
             el("button.ghost.mini", { type: "button", onclick: () => groupAction(cs, anyRunning ? "stop" : "start") }, anyRunning ? "Stop all" : "Start all"))));
       }
@@ -1424,7 +1427,7 @@ async function renderVolumes(main) {
       big && size(big) ? [bytes(size(big)), "largest", big.Name] : null,
     ]);
   }
-  if (!vols.length) { body.replaceChildren(el("p.empty", "No volumes.")); return; }
+  if (!vols.length) { body.replaceChildren(el("p.empty", "No volumes.")); main.append(await backupsCard()); return; }
   body.replaceChildren(el("table",
     el("thead", el("tr", ["Name", "Size", "Used by", "Created", ""].map((h) => el("th", h)))),
     el("tbody", vols.map((v) => el("tr",
@@ -1434,7 +1437,9 @@ async function renderVolumes(main) {
       el("td.small", v.CreatedAt ? new Date(v.CreatedAt).toLocaleString() : "–"),
       el("td.actions",
         el("button.ghost.mini", { type: "button", onclick: () => showFiles(v.Name, v.Name, "volume") }, "Browse"),
+        el("button.ghost.mini", { type: "button", onclick: () => backupVolume(v), title: "Save the volume's files as a .tar.gz on your Mac" }, "Back up"),
         el("button.ghost.mini.danger", { type: "button", onclick: () => removeVolume(v) }, "Remove")))))));
+  main.append(await backupsCard());
 }
 
 async function removeVolume(v) {
@@ -1774,7 +1779,7 @@ async function renderPorts(main) {
     }
     summarise();
     cCard.replaceChildren(el("h2", "Containers"), rows.length
-      ? el("table", el("thead", el("tr", ["Container", "On your Mac", "In the container", ""].map((h) => el("th", h)))), el("tbody", rows))
+      ? el("div.table-wrap", el("table", el("thead", el("tr", ["Container", "On your Mac", "In the container", "Reach"].map((h) => el("th", h)))), el("tbody", rows)))
       : el("p.muted", "No running container publishes a port. Publish one with ", el("code", "docker run -p 8080:80 …"), "."));
   } catch (e) {
     cCard.replaceChildren(el("h2", "Containers"), el("div.notice.bad", e.message));
@@ -2283,6 +2288,49 @@ async function pollMetrics() {
 async function pollMac() {
   try { metrics.mac = await api("GET", "/api/mac/load"); } catch { metrics.mac = null; }
 }
+// What each container costs the Mac over the selected range, asked at most every 10 s.
+async function pollCosts(force) {
+  const range = RANGES[safeGet("range")] ? safeGet("range") : "15m";
+  if (!force && metrics.costs?.range === range && Date.now() - metrics.costs.at < 10e3) return;
+  try { metrics.costs = { range, at: Date.now(), d: await api("GET", `${P()}/costs?range=${range}`) }; } catch { /* keep the last answer */ }
+}
+function coreTime(secs) {
+  if (secs < 60) return `${secs.toFixed(secs < 10 ? 1 : 0)} s`;
+  if (secs < 3600) return `${(secs / 60).toFixed(1)} min`;
+  return `${(secs / 3600).toFixed(1)} h`;
+}
+function costCard() {
+  const c = metrics.costs?.d;
+  const label = RANGE_LABELS[metrics.costs?.range] || "this range";
+  const head = el("div.viz-head", el("h2", "What each container costs your Mac"), el("span.viz-tools",
+    el("span.muted.small", "share of the VM's Mac CPU and memory"),
+    exportMenu("container-cost", () => (c?.costs || []).map((x) => ({ name: x.name, image: x.image, mac_cpu_pct: x.macCpu, peak_cpu_pct: x.peakCpu,
+      mac_memory_bytes: x.macMem, peak_memory_bytes: x.peakMem, cpu_core_seconds: x.cpuSecs, vm_cpu_share: x.vmShare, running_share: x.seen })))));
+  if (!c || !c.samples) return el("div.card.viz.cost-card", head, el("p.empty", "Collecting samples… the bill appears after a few seconds on this page."));
+  const top = Math.max(...c.costs.map((x) => x.cpuSecs), 1e-9);
+  const rows = c.costs.map((x) => {
+    const bar = el("span.cost-bar"); bar.style.setProperty("--w", String(Math.max(3, Math.round((100 * x.cpuSecs) / top))));
+    if (x.system) bar.classList.add("sys");
+    return el(`tr${x.system ? ".cost-sys" : ""}`,
+      el("td", el("strong", x.name), el("div.muted.small.mono", x.system ? "kernel, Docker engine and idle overhead" : (x.image || ""))),
+      el("td", el("div.cost-cell", bar, el("span.mono", coreTime(x.cpuSecs)))),
+      el("td.mono", `${(x.macCpu / 100).toFixed(2)} cores`, el("div.muted.small", `peak ${(x.peakCpu / 100).toFixed(2)}`)),
+      el("td.mono", bytes(x.macMem), el("div.muted.small", `peak ${bytes(x.peakMem)}`)),
+      el("td.mono", `${Math.round(x.vmShare * 100)}%`),
+      el("td.mono", x.system ? "–" : `${Math.round(x.seen * 100)}%`));
+  });
+  const cover = c.coverage < 0.95 ? ` Samples cover ${dur(Math.round(c.samples * 2))} of ${label}, the time this page has been open; the bill grows as it stays open.` : "";
+  return el("div.card.viz.cost-card", head,
+    el("div.stat-row.page-sum",
+      stat(coreTime(c.cpuSecs), `Mac CPU time, ${label}`, "core seconds the VM used on your Mac", null),
+      stat(`${(c.macCpu / 100).toFixed(2)} cores`, "VM average on your Mac", "", null),
+      stat(bytes(c.macMem), "VM memory on your Mac", "average physical footprint", null),
+      c.costs[0] && !c.costs[0].system ? stat(c.costs[0].name, "Costs the most", `${coreTime(c.costs[0].cpuSecs)} of Mac CPU`, "warn") : null),
+    el("div.table-wrap", el("table",
+      el("thead", el("tr", ["Container", "Mac CPU time", "Average CPU", "Memory", "VM CPU share", "Running"].map((x) => el("th", x)))),
+      el("tbody", rows))),
+    el("p.small.muted", `The VM is one process on your Mac. Each container is billed the part of that process's CPU and memory that matches its share of the work inside the VM; "VM and system" is the rest.${cover}`));
+}
 function macCard() {
   const m = metrics.mac;
   if (!m) return null;
@@ -2366,12 +2414,12 @@ async function renderMonitor(main) {
   const recs = adviceSlot(true);
   // Fetch before swapping the page in, so a redraw goes straight from the old charts to the new
   // ones instead of flashing an empty page while the request is out.
-  try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
+  try { await Promise.all([pollMetrics(), pollMac(), pollCosts(true)]); } catch (e) { metrics.error = e.message; }
   if (state.tab !== "monitor") return; // moved to another page meanwhile
   main.replaceChildren(head, recs, body);
   drawMonitor(true);
   const tick = async () => {
-    try { await Promise.all([pollMetrics(), pollMac()]); } catch (e) { metrics.error = e.message; }
+    try { await Promise.all([pollMetrics(), pollMac(), pollCosts()]); } catch (e) { metrics.error = e.message; }
     if (!metrics.hovering && !body.querySelector("details.xmenu[open]") && document.body.contains(body)) drawMonitor(true);
     const last = metrics.samples[metrics.samples.length - 1];
     if (last?.guest && Date.now() - last.t < 10e3) recs.tick();
@@ -2502,7 +2550,7 @@ function drawMonitor(dataOnly) {
       : el("p.empty", "No running containers."));
 
   const note = el("p.small.muted", "Sampled every 2 seconds while this page is open; sampling stops 5 minutes after you leave. Gaps in the lines are times nobody was watching.");
-  body.replaceChildren(...[macCard()].filter(Boolean), hero, el("div.viz-grid", rightNow, cpuArea), el("div.viz-grid", memArea, vmMem), el("div.viz-grid", net, disk), el("div.viz-grid", macCpu, macMem), table, note);
+  body.replaceChildren(...[macCard()].filter(Boolean), hero, el("div.viz-grid", rightNow, cpuArea), el("div.viz-grid", memArea, vmMem), el("div.viz-grid", net, disk), el("div.viz-grid", macCpu, macMem), table, costCard(), note);
 }
 
 tabs.monitor = renderMonitor;

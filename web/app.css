@@ -1460,3 +1460,31 @@ button.ghost[data-act="close"], button.mini[data-act="close"] { border-color: co
 .page-sum .stat:nth-child(5n+3):not(.ok):not(.warn):not(.bad) { --tone: var(--series-3); }
 .page-sum .stat:nth-child(5n+4):not(.ok):not(.warn):not(.bad) { --tone: var(--series-4); }
 .page-sum .stat:nth-child(5n+5):not(.ok):not(.warn):not(.bad) { --tone: var(--series-5); }
+
+/* Monitor: what each container costs the Mac */
+.cost-card .page-sum .stat strong { overflow-wrap: anywhere; }
+.cost-cell { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.cost-bar { flex: 0 0 auto; width: calc(var(--w, 0) * 0.9px); height: 10px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--warn))); }
+.cost-bar.sys { background: var(--series-system); }
+.cost-sys td { background: color-mix(in srgb, var(--series-system) 8%, transparent); }
+
+/* Compose from a folder, volume backups */
+.cmp-card, .bk-card { display: flex; flex-direction: column; gap: 12px; }
+.cmp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cmp-row .grow, .cmp-row input.grow { flex: 1 1 220px; min-width: 0; }
+.cmp-acts { padding: 4px 0; }
+.cmp-dir { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.cmp-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow: auto; }
+.cmp-pick { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--series-3) 25%, var(--line)); background: color-mix(in srgb, var(--series-3) 6%, var(--panel)); color: var(--text); cursor: pointer; }
+.cmp-pick:hover { background: color-mix(in srgb, var(--series-3) 14%, var(--panel)); }
+.cmp-pick .ichip { flex: 0 0 auto; }
+.cmp-pick-dir { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-pick .muted { flex: 0 0 auto; }
+.cmp-build { margin-left: 6px; }
+.small-h { font-size: 13px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
+@media (max-width: 700px) { .cmp-pick .muted { display: none; } }
+.cost-card > .page-sum { margin: 16px 20px 0; }
+.cost-card > p.small { margin: 0 20px 16px; }
+@media (max-width: 700px) { .cost-card > .page-sum { margin: 12px 12px 0; } .cost-card > p.small { margin: 0 12px 12px; } }

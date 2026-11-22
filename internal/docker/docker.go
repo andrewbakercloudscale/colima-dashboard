@@ -4,6 +4,7 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -559,6 +560,21 @@ func (c *Client) Volume(ctx context.Context, name string) (*Volume, error) {
 	}
 	var v Volume
 	return &v, c.getJSON(ctx, "/volumes/"+url.PathEscape(name), nil, &v)
+}
+
+// CreateVolume creates a local volume (a no-op when it exists) and returns it.
+func (c *Client) CreateVolume(ctx context.Context, name string) (*Volume, error) {
+	if !ValidRef(name) {
+		return nil, fmt.Errorf("invalid volume name %q", name)
+	}
+	body, _ := json.Marshal(map[string]string{"Name": name})
+	resp, err := c.do(ctx, http.MethodPost, "/volumes/create", nil, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var v Volume
+	return &v, json.NewDecoder(resp.Body).Decode(&v)
 }
 
 func (c *Client) RemoveVolume(ctx context.Context, name string) error {

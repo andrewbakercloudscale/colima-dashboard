@@ -17,6 +17,7 @@ import (
 
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/colima"
 	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/metrics"
 )
 
 func (s *Server) routes() {
@@ -37,12 +38,15 @@ func (s *Server) routes() {
 	s.historyRoutes(m)
 	s.promRoutes(m)
 	s.errorRoutes(m)
+	s.volBackupRoutes(m)
+	s.composeRoutes(m)
 	m.HandleFunc("GET /api/profiles/{p}/support-bundle", s.auth(s.apiSupportBundle))
 
 	m.HandleFunc("GET /api/profiles/{p}/status", s.auth(s.apiStatus))
 	m.HandleFunc("POST /api/profiles/{p}/actions/{action}", s.auth(s.apiProfileAction))
 	m.HandleFunc("GET /api/profiles/{p}/df", s.auth(s.apiDiskUsage))
 	m.HandleFunc("GET /api/profiles/{p}/metrics", s.auth(s.apiMetrics))
+	m.HandleFunc("GET /api/profiles/{p}/costs", s.auth(s.apiCosts))
 	m.HandleFunc("GET /api/mac/load", s.auth(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.opt.Metrics.Mac()) }))
 	m.HandleFunc("GET /api/profiles/{p}/advice", s.auth(s.apiAdvice))
 	m.HandleFunc("GET /api/profiles/{p}/vmlogs", s.auth(s.apiVMLogs))
@@ -106,7 +110,7 @@ func (s *Server) routes() {
 func (s *Server) apiOverview(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	out := map[string]any{"version": s.opt.Version, "build": s.assetHash(), "jobs": s.jobs.List()}
+	out := map[string]any{"version": s.opt.Version, "build": s.assetHash(), "jobs": s.jobs.List(), "home": homeDir()}
 	if v, err := s.opt.Colima.Version(ctx); err == nil {
 		out["colimaVersion"] = v
 	} else {
@@ -675,4 +679,19 @@ func (s *Server) apiMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	writeJSON(w, http.StatusOK, s.opt.Metrics.Get(p, since))
+}
+
+// GET /api/profiles/{p}/costs?range=5m|15m|1h -> what each container cost the Mac over the range.
+func (s *Server) apiCosts(w http.ResponseWriter, r *http.Request) {
+	p := r.PathValue("p")
+	if !colima.ValidProfile(p) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid profile name %q", p))
+		return
+	}
+	window := map[string]time.Duration{"5m": 5 * time.Minute, "15m": 15 * time.Minute, "1h": time.Hour}[r.URL.Query().Get("range")]
+	if window == 0 {
+		window = 15 * time.Minute
+	}
+	since := time.Now().Add(-window).UnixMilli()
+	writeJSON(w, http.StatusOK, metrics.Costs(s.opt.Metrics.Get(p, since), since, window))
 }
