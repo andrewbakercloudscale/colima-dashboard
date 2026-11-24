@@ -256,6 +256,7 @@ func serve(port int, browser, newToken bool) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	go upd.Run(ctx)
+	go handler.RunIdle(ctx)
 	if rec != nil {
 		go rec.Run(ctx)
 	}

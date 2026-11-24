@@ -50,7 +50,7 @@ const ACTS = [
   ["close", /^(close|cancel|dismiss|done|back(?! up)|clear|not now|skip|keep it|mute|unmute|hide)\b/],
   ["danger", /^(remove|delete|prune|kill|reset|force|uninstall|wipe|purge|erase|destroy|drop|down)\b/],
   ["warn", /^(stop|restart|pause|roll ?back|rollback|restore|rebuild|change version|drain|cordon|evict|recreate|rollout restart|unpause)\b/],
-  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward|back up)\b/],
+  ["go", /^(start|run|resume|apply|save|create|update|upgrade|install|deploy|build|pull|push|scale|turn on|fix|enable|add|new|open colima|set|trust|import|forward|port forward|back up|keep running)\b/],
   ["info", /^(recalculate|calculate|check|refresh|reload|retry|test|compare|logs|show logs|shell|files|inspect|yaml|describe|events|limits|top|view|details|edit|browse|open|scan|bloat|cves|rate|show|hide|reveal|full log|only this|download|copy|go to|container|find|compose)\b/],
 ];
 function actOf(b) {
@@ -577,6 +577,7 @@ const CHIP_PATHS = {
   shield: '<path d="M12 3l8 3v6c0 4.5-3.3 8.2-8 9-4.7-.8-8-4.5-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
   term: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   engine: '<path d="M3 13h3l2-4h6l2 3h3v6H3z"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M9 9V6h4"/>',
+  moon: '<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
 };
 function chip(name) {
   const s = el("span.ichip");
@@ -619,6 +620,7 @@ async function renderGeneral(main) {
       tile("t2", "mem", "Memory", gib(p.memory)),
       tile("t4", "disk", "Disk", gib(p.disk)),
       p.address ? tile("t5", "net", "Address", p.address) : null));
+    if (running) vm.append(idleBar());
   } else {
     vm.append(el("p.muted.vm-empty", "This profile does not exist yet. Start creates it with Colima's defaults."));
   }
@@ -1561,7 +1563,7 @@ async function renderPreferences(main) {
   });
   const profiles = el("div.card", el("h2", "New profile"), el("p.muted", "A profile is a separate VM with its own engine, images and settings."), el("div.toolbar", newProf, create));
   const sugNote = sugCPU || sugMem ? el("div.notice.pref-suggest", `Filled in from a recommendation: ${[sugCPU && `${sugCPU} CPUs`, sugMem && `${sugMem} GiB of memory`].filter(Boolean).join(" and ")}. Nothing changes until you press ${apply.textContent}, which restarts the VM.`) : null;
-  main.replaceChildren(head, ...(sugNote ? [sugNote] : []), form, el("div.toolbar", apply), el("p"), profiles, appCard(), alertsCard(), prometheusCard(),
+  main.replaceChildren(head, ...(sugNote ? [sugNote] : []), form, el("div.toolbar", apply), el("p"), profiles, appCard(), idleCard(), alertsCard(), prometheusCard(),
     el("p.small.muted", "To delete this profile, use Factory reset under Troubleshooting."));
 }
 
@@ -1617,6 +1619,82 @@ document.getElementById("sb-theme")?.addEventListener("click", () => {
 darkQuery.addEventListener("change", drawThemeBtn);
 applyTheme();
 
+// Stopping idle VMs (internal/server/idle.go): the line on General and the card in Preferences.
+const minText = (m) => m % 60 === 0 && m >= 60 ? (m === 60 ? "1 hour" : `${m / 60} hours`) : `${m} minutes`;
+function clockTime(iso) { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+function idleBar() {
+  const box = el("div.idle-bar.hidden");
+  const name = state.profile;
+  const paint = (d) => {
+    const ip = d.profiles?.[name];
+    if (!d.available || !ip) { box.classList.add("hidden"); return; }
+    const st = d.settings;
+    const snooze = async (minutes) => {
+      try { await api("POST", `${P()}/idle`, { minutes }); toast(minutes ? `Kept running for ${minText(minutes)}` : "Keep running cancelled"); load(); }
+      catch (e) { toast(e.message, true); }
+    };
+    const idle = ip.idleSeconds, snoozed = ip.snoozedUntil && Date.parse(ip.snoozedUntil) > Date.now();
+    let tone = "ok", title, detail = null, btn = null;
+    if (!ip.watching) { tone = "off"; title = "Never stopped for being idle"; detail = ip.note; }
+    else if (!st.enabled || ip.keep) {
+      tone = "off"; title = "Never stopped for being idle";
+      detail = el("span", st.enabled ? "This profile is on the keep list. " : "Stopping idle VMs is off. ", el("a", { href: "#preferences" }, "Change"));
+    } else if (snoozed) {
+      title = `Kept running until ${clockTime(ip.snoozedUntil)}`;
+      detail = `Then it stops after ${minText(st.minutes)} with nothing using it.`;
+      btn = el("button", { type: "button", onclick: () => snooze(0) }, "Cancel keep running");
+    } else {
+      tone = ip.stopsInSeconds < 600 ? "warn" : idle < 120 ? "ok" : "idle";
+      title = idle < 120 ? "In use" : `Idle for ${dur(idle)}`;
+      const why = (ip.reason || "").replace(/^./, (c) => c.toUpperCase());
+      detail = idle < 120 ? `${why}. Stops itself after ${minText(st.minutes)} with nothing using it, to free its memory.`
+        : `Stops itself in ${dur(ip.stopsInSeconds)} to free its memory. Last use: ${ip.reason}, ${ago(Date.parse(ip.lastActive) / 1000)}.`;
+      btn = el("button", { type: "button", onclick: () => snooze(120) }, "Keep running 2 hours");
+    }
+    box.className = `idle-bar ${tone}`;
+    box.replaceChildren(chip("moon"), el("div.idle-text", el("strong", title), detail ? el("span.small.muted", detail) : null), btn);
+    tagButtons(box);
+  };
+  const load = () => api("GET", "/api/idle").then(paint).catch(() => box.classList.add("hidden"));
+  load();
+  return box;
+}
+
+function idleCard() {
+  const card = el("section.card.idle-card", el("h2", "Stop idle VMs"), el("p.muted.small", "Loading…"));
+  api("GET", "/api/idle").then((d) => {
+    if (!d.available) { card.replaceChildren(el("h2", "Stop idle VMs"), el("p.muted", "Not available in this build.")); return; }
+    const st = d.settings;
+    const on = el("input", { type: "checkbox", checked: st.enabled });
+    const mins = el("select", { "aria-label": "Idle time" }, [15, 30, 60, 120, 240, 480].map((m) => el("option", { value: m, selected: m === st.minutes }, minText(m))));
+    if (![15, 30, 60, 120, 240, 480].includes(st.minutes)) mins.prepend(el("option", { value: st.minutes, selected: true }, minText(st.minutes)));
+    const names = [...new Set([...state.overview.profiles.map((x) => x.name), ...st.keep])];
+    const keeps = names.map((n) => el("input", { type: "checkbox", checked: st.keep.includes(n), value: n }));
+    const save = async () => {
+      mins.disabled = !on.checked;
+      try {
+        await api("POST", "/api/idle/settings", { enabled: on.checked, minutes: +mins.value, keep: keeps.filter((k) => k.checked).map((k) => k.value) });
+        toast("Saved");
+      } catch (e) { toast(e.message, true); }
+    };
+    mins.disabled = !on.checked;
+    [on, mins, ...keeps].forEach((x) => x.addEventListener("change", save));
+    card.replaceChildren(el("h2", "Stop idle VMs"),
+      el("p.muted.small", "A running VM keeps the memory it has used, even when nothing happens in it. The dashboard stops a VM nobody has used for a while, and notifies you 5 minutes before."),
+      el("div.idle-pref", el("label.check", on, "Stop a VM when nothing has used it for"), mins),
+      names.length ? el("div.idle-keep", el("span.small.muted", "Never stop:"), names.map((n, i) => el("label.check", keeps[i], n))) : null,
+      el("details.small",
+        el("summary", "What counts as using it"),
+        el("ul.muted",
+          el("li", "Creating, starting, stopping or removing containers, running a command in one, pulling or building images, creating volumes."),
+          el("li", "A new Kubernetes pod (a deploy or rollout)."),
+          el("li", "Your containers using more than a tenth of a CPU between them, for example serving requests or running tests."),
+          el("li", "A docker, docker compose, kubectl, helm or k9s command still running on your Mac (exec, logs -f, compose up), or a colima ssh session."),
+          el("li", "Health checks, a container stuck restarting, and Kubernetes' own system pods do not count."))));
+  }).catch((e) => card.replaceChildren(el("h2", "Stop idle VMs"), el("div.notice.bad", e.message)));
+  return card;
+}
+
 // Notifications and the menu bar icon, plus the latest alerts.
 function alertsCard() {
   const card = el("section.card", el("h2", "Alerts and menu bar"), el("p.muted.small", "Loading…"));
@@ -1631,7 +1709,7 @@ function alertsCard() {
     menu.addEventListener("change", save);
     const list = a.alerts.length
       ? el("ul.alert-list", a.alerts.slice(0, 10).map((x) => el("li",
-        el("span.sev.fail", x.kind === "build" ? "Build" : "Run"),
+        x.kind === "idle" ? el("span.sev.warn", "Idle") : el("span.sev.fail", x.kind === "build" ? "Build" : "Run"),
         el("div", el("strong", x.title), el("div.small.muted", `${x.body} · ${x.profile} · ${ago(Date.parse(x.time) / 1000)}`)))))
       : el("p.small.muted", "No alerts since the dashboard started.");
     card.replaceChildren(el("h2", "Alerts and menu bar"),

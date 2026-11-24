@@ -286,13 +286,14 @@ func (c *Client) List(ctx context.Context) ([]Profile, error) {
 	return profiles, nil
 }
 
-// listSettled: every profile is plainly running or stopped, not on its way between the two.
+// listSettled: every profile is plainly running or stopped, not on its way between the two. A
+// profile listed as running before its runtime is up has no runtime yet, so is not settled either.
 func listSettled(ps []Profile, err error) bool {
 	if err != nil {
 		return false
 	}
 	for _, p := range ps {
-		if p.Status != "Running" && p.Status != "Stopped" {
+		if (p.Status != "Running" && p.Status != "Stopped") || (p.Status == "Running" && p.Runtime == "") {
 			return false
 		}
 	}

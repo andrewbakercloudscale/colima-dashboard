@@ -163,7 +163,7 @@ func TestListKeptUntilFilesChange(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "default"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &rec{out: `{"name":"default","status":"Running"}` + "\n"}
+	r := &rec{out: `{"name":"default","status":"Running","runtime":"docker"}` + "\n"}
 	c := New("colima")
 	c.Runner, c.Home = r, home
 	list := func() {
@@ -200,5 +200,14 @@ func TestListKeptUntilFilesChange(t *testing.T) {
 	list()
 	if len(r.runs) != 5 {
 		t.Fatalf("starting: colima ran %d times, want 5", len(r.runs))
+	}
+}
+
+func TestListSettledNeedsRuntime(t *testing.T) {
+	if listSettled([]Profile{{Name: "a", Status: "Running"}}, nil) {
+		t.Fatal("a running profile with no runtime yet was cached as settled")
+	}
+	if !listSettled([]Profile{{Name: "a", Status: "Running", Runtime: "docker"}, {Name: "b", Status: "Stopped"}}, nil) {
+		t.Fatal("settled list not settled")
 	}
 }

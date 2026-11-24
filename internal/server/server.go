@@ -91,6 +91,7 @@ type Server struct {
 	advice     adviceCache // Fix recommendations, 30 seconds
 	errs       errCache    // the Errors page, 10 seconds
 	prom       promState
+	idle       idleWatch // stopping idle VMs (idle.go)
 }
 
 // New builds the handler.
