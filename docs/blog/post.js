@@ -222,6 +222,7 @@ ul([
   '<strong>Compose from a folder:</strong> it finds the Compose projects on your Mac. Pick one to see each service\'s image, ports and state, then start, rebuild, pull, restart, stop or take it down.',
   '<strong>Volume backups:</strong> one click saves a volume as a plain .tar.gz on your Mac, and restore puts it back into the same volume or a new one. Backups survive deleting the VM.',
   '<strong>What each container costs your Mac:</strong> the Monitor splits the VM\'s Mac CPU time and memory between your containers, so you can see which one is warming your lap.',
+  '<strong>Stops idle VMs:</strong> a VM nobody has used for an hour is stopped to give its memory back, with a notification 5 minutes before. Health checks, crash loops and Kubernetes\' own system pods do not count as use, and a Keep running button or a keep list overrides it.',
   '<strong>Things to fix on the first page:</strong> out of memory kills, containers at their limits, a VM short of CPU or memory, and log errors, each with a recommendation in real numbers and a button to apply it.',
   '<strong>Summary on every page:</strong> totals, sizes, unused space, crashes, restarts, containers with no memory limit and ports open to your network, at the top of each page.',
   '<strong>Cyber risk:</strong> an A to F grade for every image and every component in it, cached until you press Recalculate Cyber Risk, with the version that fixes each one.',
