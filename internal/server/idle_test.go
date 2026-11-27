@@ -3,6 +3,8 @@ package server
 import (
 	"testing"
 	"time"
+
+	"github.com/andrewbakercloudscale/colima-dashboard/internal/docker"
 )
 
 func newIdleProfile() *idleProfile {
@@ -138,5 +140,24 @@ func TestCPUDelta(t *testing.T) {
 func TestIsHealthcheck(t *testing.T) {
 	if isHealthcheck("anything", []string{"NONE"}) || isHealthcheck("x", nil) {
 		t.Fatal("no health check matched")
+	}
+}
+
+func TestMacConns(t *testing.T) {
+	out := "p100\ncpython3\nn127.0.0.1:60001->127.0.0.1:55432\n" +
+		"p200\nclimactl\nn127.0.0.1:55432->127.0.0.1:60001\n" +
+		"p300\ncChrome\nn192.168.1.5:60002->142.250.1.1:443\nn[::1]:60003->[::1]:8080\n" +
+		"p500\nccolima-dashboard\nn127.0.0.1:60004->127.0.0.1:9999\n"
+	got := parseMacConns(out, 500)
+	if got[55432] != "python3" || got[8080] != "Chrome" || len(got) != 2 {
+		t.Fatalf("got %v", got)
+	}
+	list := []docker.Container{{Names: []string{"/db"}, State: "running", Ports: []docker.Port{{PrivatePort: 5432, PublicPort: 55432}}}}
+	if r := connectedUse(list, got); r == "" {
+		t.Fatal("database in use by python3 not seen")
+	}
+	list[0].State = "exited"
+	if connectedUse(list, got) != "" {
+		t.Fatal("stopped container counted")
 	}
 }

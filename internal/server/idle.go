@@ -10,6 +10,10 @@ package server
 //     a command in one, pulling, tagging or removing images, creating volumes and networks. Health
 //     checks and the restarts of a container that keeps crashing do not count.
 //   - A new Kubernetes pod (a deploy or rollout). Pods restarting on their own do not count.
+//   - A program on the Mac connected to a container's published port (an app using its
+//     database, a browser tab on a dev server). Connection pools count: an app that keeps its
+//     database connection open is using it, even between queries.
+//   - Containers sending or receiving more than 256 KB a minute between them.
 //   - Containers using more than a tenth of a CPU between them (serving requests, running tests).
 //     Kubernetes' own system pods do not count: k3s keeps itself busy even when nothing happens.
 //   - A docker, docker compose, kubectl, helm or k9s command still running on the Mac (docker
@@ -49,6 +53,7 @@ const (
 	idleEvery    = time.Minute
 	idleWarn     = 5 * time.Minute
 	idleCPUCores = 0.10            // containers using more than this between them are in use
+	idleNetBytes = 256 << 10       // network bytes a minute that count as use
 	crashWindow  = 5 * time.Minute // a start this soon after a die is a restart policy, not a person
 )
 
@@ -63,6 +68,7 @@ type idleProfile struct {
 	since  time.Time            // events are read from here
 	cpu    map[string]uint64    // container id -> CPU nanoseconds at cpuAt
 	cpuAt  time.Time            //
+	net    map[string]uint64    // container id -> network bytes at cpuAt
 	pods   map[string]bool      // Kubernetes pod uids seen
 	died   map[string]time.Time // container id -> last die
 	hc     map[string][]string  // container id -> health check command
@@ -140,6 +146,7 @@ func (s *Server) idleTick(ctx context.Context, now time.Time) {
 	}
 	st := s.idleSettings()
 	host := hostUse(ctx)
+	conns := macConns(ctx)
 	busyJobs := map[string]bool{}
 	for _, j := range s.jobs.List() {
 		if !j.Done && j.Profile != "" {
@@ -192,7 +199,7 @@ func (s *Server) idleTick(ctx context.Context, now time.Time) {
 		case host[p.Name] != "":
 			reason = host[p.Name]
 		}
-		if r := s.idleDocker(ctx, p.Name, ip, now); reason == "" {
+		if r := s.idleDocker(ctx, p.Name, ip, now, conns); reason == "" {
 			reason = r
 		}
 		w.mu.Lock()
@@ -279,7 +286,7 @@ type dockerEvent struct {
 
 // idleDocker reads the profile's Docker events and container CPU since the last look, and returns
 // what shows it is in use, or "".
-func (s *Server) idleDocker(ctx context.Context, p string, ip *idleProfile, now time.Time) string {
+func (s *Server) idleDocker(ctx context.Context, p string, ip *idleProfile, now time.Time, conns map[int]string) string {
 	dc, err := s.dockerFor(p)
 	if err != nil {
 		return ""
@@ -311,8 +318,16 @@ func (s *Server) idleDocker(ctx context.Context, p string, ip *idleProfile, now 
 			}
 		}
 	}
-	if cores := ip.cpuUse(ctx, dc, list, now); cores > idleCPUCores && reason == "" {
+	if r := connectedUse(list, conns); r != "" && reason == "" {
+		reason = r
+	}
+	cores, netBytes := ip.cpuUse(ctx, dc, list, now)
+	switch {
+	case reason != "":
+	case cores > idleCPUCores:
 		reason = fmt.Sprintf("its containers are busy (%.0f%% of a CPU)", cores*100)
+	case netBytes > idleNetBytes:
+		reason = fmt.Sprintf("its containers' network traffic (%d KB in a minute)", netBytes>>10)
 	}
 	ip.seeded = true
 	return reason
@@ -425,10 +440,74 @@ func healthcheck(ctx context.Context, dc *docker.Client, ip *idleProfile, id str
 	return test
 }
 
-// cpuUse returns the CPUs the profile's own containers used since the last look (Kubernetes'
-// system pods and pod sandboxes left out).
-func (ip *idleProfile) cpuUse(ctx context.Context, dc *docker.Client, list []docker.Container, now time.Time) float64 {
+// connectedUse names a container whose published port a program on the Mac is connected to.
+func connectedUse(list []docker.Container, conns map[int]string) string {
+	for _, c := range list {
+		if c.State != "running" {
+			continue
+		}
+		for _, pt := range c.Ports {
+			if cmd := conns[pt.PublicPort]; pt.PublicPort > 0 && cmd != "" {
+				name := strings.TrimPrefix(firstName(c.Names), "/")
+				return fmt.Sprintf("%s on your Mac is connected to %s (port %d)", cmd, name, pt.PublicPort)
+			}
+		}
+	}
+	return ""
+}
+
+// macConns returns the local ports that programs on the Mac hold open TCP connections to, with
+// the program's name. Colima's own port forwarder and this dashboard do not count.
+func macConns(ctx context.Context) map[int]string {
+	out, err := exec.CommandContext(ctx, "lsof", "-nP", "-iTCP", "-sTCP:ESTABLISHED", "-Fpcn").Output()
+	if err != nil && len(out) == 0 {
+		return nil
+	}
+	return parseMacConns(string(out), os.Getpid())
+}
+
+// parseMacConns reads lsof -F pcn output: p<pid>, c<command>, n<local>-><remote> lines.
+func parseMacConns(out string, self int) map[int]string {
+	conns := map[int]string{}
+	pid, cmd := 0, ""
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			pid, _ = strconv.Atoi(line[1:])
+		case 'c':
+			cmd = line[1:]
+		case 'n':
+			if pid == self || cmd == "limactl" || cmd == "ssh" || strings.HasPrefix(cmd, "com.apple.Vi") {
+				continue
+			}
+			_, remote, ok := strings.Cut(line[1:], "->")
+			if !ok {
+				continue
+			}
+			i := strings.LastIndex(remote, ":")
+			if i < 0 {
+				continue
+			}
+			host := strings.Trim(remote[:i], "[]")
+			if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+				continue
+			}
+			if port, err := strconv.Atoi(remote[i+1:]); err == nil && conns[port] == "" {
+				conns[port] = cmd
+			}
+		}
+	}
+	return conns
+}
+
+// cpuUse returns the CPUs the profile's own containers used since the last look, and the
+// network bytes they moved (Kubernetes' system pods and pod sandboxes left out).
+func (ip *idleProfile) cpuUse(ctx context.Context, dc *docker.Client, list []docker.Container, now time.Time) (float64, uint64) {
 	cur := map[string]uint64{}
+	curNet := map[string]uint64{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
@@ -452,18 +531,38 @@ func (ip *idleProfile) cpuUse(ctx context.Context, dc *docker.Client, list []doc
 						Total uint64 `json:"total_usage"`
 					} `json:"cpu_usage"`
 				} `json:"cpu_stats"`
+				Networks map[string]struct {
+					Rx uint64 `json:"rx_bytes"`
+					Tx uint64 `json:"tx_bytes"`
+				} `json:"networks"`
 			}
 			if json.NewDecoder(body).Decode(&st) == nil {
+				var n uint64
+				for _, v := range st.Networks {
+					n += v.Rx + v.Tx
+				}
 				mu.Lock()
-				cur[id] = st.CPU.Usage.Total
+				cur[id], curNet[id] = st.CPU.Usage.Total, n
 				mu.Unlock()
 			}
 		}(c.ID)
 	}
 	wg.Wait()
 	cores := cpuDelta(ip.cpu, cur, now.Sub(ip.cpuAt))
-	ip.cpu, ip.cpuAt = cur, now
-	return cores
+	var netBytes uint64
+	if ip.net != nil {
+		for id, v := range curNet {
+			if b, ok := ip.net[id]; ok && v >= b {
+				netBytes += v - b
+			}
+		}
+		// Per minute, whatever the gap between looks.
+		if dt := now.Sub(ip.cpuAt); dt > 0 {
+			netBytes = uint64(float64(netBytes) * float64(time.Minute) / float64(dt))
+		}
+	}
+	ip.cpu, ip.net, ip.cpuAt = cur, curNet, now
+	return cores, netBytes
 }
 
 // cpuDelta is the CPUs used between two samples of cumulative nanoseconds.

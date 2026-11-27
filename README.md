@@ -64,8 +64,9 @@ are in [`bench/`](bench/) and in the blog post this project was written for.
 - Monitor: live CPU and memory graphs per VM and per container, plus 30 days of history, and
   what each container costs your Mac: its share of the VM's Mac CPU time and memory.
 - Stops idle VMs: a VM nobody has used for an hour (you choose the time, or keep some profiles
-  running) is stopped to give its memory back, with a notification 5 minutes before. Health
-  checks, crash loops and Kubernetes' own system pods do not count as use.
+  running) is stopped to give its memory back, with a notification 5 minutes before. An app on
+  your Mac connected to a container's port counts as use; health checks, crash loops and
+  Kubernetes' own system pods do not.
 - Runs and tests and Builds: pass rates, flaky and slowing tests, build times and cache hits.
 - Things to fix on the first page: out of memory kills, containers at their limits, a VM short of
   CPU or memory and recent log errors, each with a recommendation and a button to apply it.
