@@ -28,6 +28,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         refresh()
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.refresh() }
+        // The dashboard that started this icon is gone (killed, rebuilt, updated): so is the icon.
+        // A replacement dashboard on the same port would otherwise keep an orphan alive forever.
+        let parent = getppid()
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            if getppid() != parent { NSApp.terminate(nil) }
+        }
     }
 
     func request(_ method: String, _ path: String, _ done: ((Data?) -> Void)? = nil) {

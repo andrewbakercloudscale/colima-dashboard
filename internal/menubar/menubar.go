@@ -55,6 +55,7 @@ func (r *Runner) loop(ctx context.Context) {
 	}
 	pidFile := filepath.Join(r.Dir, "menubar.pid")
 	killStale(pidFile)
+	killOrphans()
 	for crashes := 0; ctx.Err() == nil && crashes < 5; {
 		cmd := exec.CommandContext(ctx, path)
 		cmd.Env = append(os.Environ(), r.Env...)
@@ -103,6 +104,35 @@ func killStale(pidFile string) {
 		}
 	}
 	_ = os.Remove(pidFile)
+}
+
+// killOrphans stops any helper whose dashboard has died (parent pid 1). Older helpers did not
+// notice their parent going away, and the pid file only remembers the latest one.
+func killOrphans() {
+	out, err := exec.Command("/bin/ps", "-axo", "pid=,ppid=,comm=").Output()
+	if err != nil {
+		return
+	}
+	for _, pid := range orphanPids(string(out)) {
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill()
+		}
+	}
+}
+
+// orphanPids picks ColimaDashboardMenu processes reparented to launchd out of `ps -o pid,ppid,comm`.
+func orphanPids(ps string) []int {
+	var pids []int
+	for _, line := range strings.Split(ps, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || f[1] != "1" || !strings.HasSuffix(strings.Join(f[2:], " "), "/ColimaDashboardMenu") {
+			continue
+		}
+		if pid, err := strconv.Atoi(f[0]); err == nil && pid > 1 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
 }
 
 // install writes the helper when it is missing or different from this build's.
